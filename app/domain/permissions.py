@@ -1,0 +1,73 @@
+"""Club and session access decisions from trusted service context."""
+
+from dataclasses import dataclass
+from uuid import UUID
+
+from app.domain.enums import MembershipRole, MembershipStatus, SessionStatus
+
+
+@dataclass(frozen=True)
+class ActorContext:
+    club_id: UUID
+    membership_role: MembershipRole | None
+    membership_status: MembershipStatus | None
+    player_id: UUID | None
+    player_is_active: bool = False
+
+
+@dataclass(frozen=True)
+class SessionContext:
+    club_id: UUID
+    status: SessionStatus
+    statistician_player_id: UUID
+
+
+def _is_active_member(actor: ActorContext) -> bool:
+    return (
+        actor.membership_status is MembershipStatus.ACTIVE
+        and actor.membership_role in (MembershipRole.PLAYER, MembershipRole.ADMIN)
+    )
+
+
+def _is_admin(actor: ActorContext) -> bool:
+    return _is_active_member(actor) and actor.membership_role is MembershipRole.ADMIN
+
+
+def can_start_session(
+    actor: ActorContext, club_id: UUID, *, has_active_session: bool
+) -> bool:
+    return (
+        _is_active_member(actor)
+        and actor.club_id == club_id
+        and actor.player_id is not None
+        and actor.player_is_active
+        and not has_active_session
+    )
+
+
+def can_manage_current_session(actor: ActorContext, session: SessionContext) -> bool:
+    if not _is_active_member(actor) or actor.club_id != session.club_id:
+        return False
+    if session.status is not SessionStatus.ACTIVE:
+        return False
+    return _is_admin(actor) or (
+        actor.player_is_active and actor.player_id == session.statistician_player_id
+    )
+
+
+def can_create_game(actor: ActorContext, session: SessionContext) -> bool:
+    return can_manage_current_session(actor, session)
+
+
+def can_edit_game(actor: ActorContext, session: SessionContext) -> bool:
+    if not _is_active_member(actor) or actor.club_id != session.club_id:
+        return False
+    return _is_admin(actor) or can_manage_current_session(actor, session)
+
+
+def can_manage_players(actor: ActorContext, club_id: UUID) -> bool:
+    return actor.club_id == club_id and _is_admin(actor)
+
+
+def can_manage_club(actor: ActorContext, club_id: UUID) -> bool:
+    return actor.club_id == club_id and _is_admin(actor)
