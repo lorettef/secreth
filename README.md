@@ -1,6 +1,6 @@
 # Secret Hitler Stats
 
-Минимальный Telegram-бот для будущего учёта партий. На этом этапе доступны только запуск и команда `/start`.
+Telegram-бот для учёта партий Secret Hitler. Сейчас доступны вступление в клуб по приглашению и привязка игрока к Telegram.
 
 ## Требования
 
@@ -12,14 +12,27 @@
 1. Скопируйте `.env.example` в `.env`.
 2. Заполните `BOT_TOKEN` и задайте свой `POSTGRES_PASSWORD`.
 3. В `DATABASE_URL` укажите тот же пароль; хост `db` нужен для запуска в Compose.
-4. Запустите сервисы:
+4. Запустите PostgreSQL, примените миграции и создайте первого администратора:
+
+```bash
+docker compose up -d db
+docker compose build app
+docker compose run --rm app alembic upgrade head
+docker compose run --rm app python -m app.bootstrap_admin \
+  --telegram-id 123456789 --club "Название клуба" \
+  --timezone "Asia/Yakutsk" --player "Имя администратора"
+```
+
+Замените `123456789` реальным Telegram ID администратора. Bootstrap разрешён только пока в базе нет ни одного клуба. Повторный запуск не создаст второй клуб или второго администратора.
+
+5. Запустите бота:
 
 ```bash
 docker compose up --build -d
 docker compose logs -f app
 ```
 
-При запуске бот проверяет подключение к PostgreSQL, затем начинает long polling. Команда `/start` отвечает: «Secret Hitler Stats запущен.»
+При запуске бот проверяет PostgreSQL, затем начинает long polling. Администратор открывает `/start`, нажимает «Управление клубом» → «Создать приглашение» и отправляет ссылку игроку. Игрок открывает ссылку, вступает в клуб и выбирает «Я новый игрок» либо исторического игрока без Telegram-привязки. Привязку исторического игрока администратор подтверждает в «Заявках на привязку».
 
 Остановить сервисы без удаления данных:
 
@@ -29,7 +42,7 @@ docker compose down
 
 ## Миграции
 
-Миграция `0001_initial_models` создаёт таблицы и ограничения. Применить её:
+Миграции `0001_initial_models` и `0002_player_link_requests` создают таблицы и ограничения. Применить их:
 
 ```bash
 docker compose run --rm app alembic upgrade head

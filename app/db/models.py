@@ -29,6 +29,7 @@ from app.domain.enums import (
     GameStatus,
     MembershipRole,
     MembershipStatus,
+    PlayerLinkStatus,
     RuinReason,
     SessionStatus,
     Team,
@@ -121,6 +122,44 @@ class ClubMembership(Base):
 
     club: Mapped[Club] = relationship(back_populates="memberships")
     telegram_user: Mapped[TelegramUser] = relationship(back_populates="memberships")
+
+
+class PlayerLinkRequest(Base):
+    __tablename__ = "player_link_requests"
+    __table_args__ = (
+        Index(
+            "uq_player_link_requests_pending_user_club",
+            "club_id",
+            "telegram_user_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        Index(
+            "uq_player_link_requests_pending_player",
+            "player_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        Index("ix_player_link_requests_club_status", "club_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id"), nullable=False)
+    telegram_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_users.id"), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    status: Mapped[PlayerLinkStatus] = mapped_column(
+        Enum(PlayerLinkStatus, name="player_link_status"),
+        server_default="PENDING",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_player_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+
+    player: Mapped[Player] = relationship(foreign_keys=[player_id])
+    telegram_user: Mapped[TelegramUser] = relationship()
 
 
 class InviteToken(Base):

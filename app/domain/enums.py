@@ -13,6 +13,12 @@ class MembershipStatus(str, enum.Enum):
     BLOCKED = "BLOCKED"
 
 
+class PlayerLinkStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class SessionStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     FINISHED = "FINISHED"
