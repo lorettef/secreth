@@ -9,7 +9,7 @@ from aiogram import Bot
 from aiogram.filters import CommandObject
 from aiogram.types import CallbackQuery, Chat, Message, User
 
-from app.bot.callbacks import ClubAction, JoinInvite, ReviewLink, SessionAction, SessionStart
+from app.bot.callbacks import ClubAction, GameAfter, GamePick, GameSave, JoinInvite, ReviewLink, SessionAction, SessionStart
 from app.bot.handlers.admin import review_pending
 from app.bot.handlers.membership import club_action, join_club
 from app.bot.handlers.start import start
@@ -152,6 +152,9 @@ def test_callback_payloads_fit_telegram_limit() -> None:
     assert len(ReviewLink(request_id=identifier, action="approve").pack().encode()) <= 64
     assert len(SessionAction(session_id=identifier, action="transfer").pack().encode()) <= 64
     assert len(SessionStart(club_id=identifier).pack().encode()) <= 64
+    assert len(GamePick(step="participants", player_id=identifier).pack().encode()) <= 64
+    assert len(GameSave(draft_id=identifier).pack().encode()) <= 64
+    assert len(GameAfter(game_id=identifier, action="changed").pack().encode()) <= 64
 
 
 @pytest.mark.asyncio

@@ -48,3 +48,26 @@ class SessionPick(CallbackData, prefix="sp"):
 
 class SessionStep(CallbackData, prefix="step"):
     action: str
+
+
+class GameAction(CallbackData, prefix="ga"):
+    action: str
+
+
+class GamePick(CallbackData, prefix="gp"):
+    step: str
+    player_id: UUID
+
+
+class GameChoice(CallbackData, prefix="gc"):
+    kind: str
+    code: str
+
+
+class GameSave(CallbackData, prefix="gs"):
+    draft_id: UUID
+
+
+class GameAfter(CallbackData, prefix="gafter"):
+    game_id: UUID
+    action: str

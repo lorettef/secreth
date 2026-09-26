@@ -13,6 +13,8 @@ from app.bot.handlers.common import reply
 from app.bot.keyboards import sessions as keyboards
 from app.locales import ru
 from app.services.sessions import SessionError, SessionErrorCode, SessionService
+from app.services.games import GameError, GameService
+from app.bot.handlers.games import begin_wizard
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -27,6 +29,8 @@ class EveningFlow(StatesGroup):
 async def _error(callback: CallbackQuery, error: Exception) -> None:
     if isinstance(error, SessionError):
         await reply(callback, ru.SESSION_ERRORS[error.code.value])
+    elif isinstance(error, GameError):
+        await reply(callback, ru.GAME_ERRORS[error.code.value])
     else:
         logger.exception("Evening callback failed")
         await reply(callback, ru.GENERIC_ERROR)
@@ -52,14 +56,17 @@ async def start_evening(callback: CallbackQuery, callback_data: SessionStart,
 
 @router.callback_query(SessionAction.filter())
 async def evening_action(callback: CallbackQuery, callback_data: SessionAction,
-                         state: FSMContext, session_service: SessionService) -> None:
+                         state: FSMContext, session_service: SessionService,
+                         game_service: GameService) -> None:
     try:
         action = callback_data.action
         session_id = callback_data.session_id
         if action == "view":
             await state.clear()
             await _show(callback, session_service, session_id)
-        elif action in ("roster", "summary", "record"):
+        elif action == "record":
+            await begin_wizard(callback, state, game_service, session_id)
+        elif action in ("roster", "summary"):
             view = await session_service.view(callback.from_user.id, session_id)
             if view.status.value != "ACTIVE":
                 raise SessionError(SessionErrorCode.SESSION_FINISHED)
@@ -69,10 +76,6 @@ async def evening_action(callback: CallbackQuery, callback_data: SessionAction,
                 await reply(callback, ru.session_message(view), keyboards.roster_actions(session_id))
             elif action == "summary":
                 await reply(callback, ru.session_message(view), keyboards.session_view(view))
-            elif len(view.roster) < 5:
-                await reply(callback, ru.GAME_NEEDS_PLAYERS, keyboards.session_view(view))
-            else:
-                await reply(callback, ru.GAME_NEXT_PHASE, keyboards.session_view(view))
         elif action in ("add", "remove", "transfer"):
             players = await session_service.roster_choices(callback.from_user.id, session_id, action)
             if not players:
@@ -148,6 +151,10 @@ async def step(callback: CallbackQuery, callback_data: SessionStep,
         current = await state.get_state()
         data = await state.get_data()
         if action == "cancel":
+            if current not in (EveningFlow.selecting.state, EveningFlow.choosing.state,
+                               EveningFlow.confirming.state):
+                await reply(callback, ru.SESSION_STALE)
+                return
             await state.clear()
             await reply(callback, "Действие отменено. Откройте /start для главного меню.")
         elif current == EveningFlow.selecting.state:

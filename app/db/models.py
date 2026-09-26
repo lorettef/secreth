@@ -249,11 +249,13 @@ class Game(TimestampMixin, Base):
     __tablename__ = "games"
     __table_args__ = (
         UniqueConstraint("session_id", "sequence_number", name="uq_games_session_sequence"),
+        UniqueConstraint("draft_id", name="uq_games_draft_id"),
         CheckConstraint("sequence_number > 0", name="ck_games_sequence_positive"),
         Index("ix_games_session_played", "session_id", "played_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("game_sessions.id"), nullable=False)
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
     winner_team: Mapped[Team] = mapped_column(Enum(Team, name="team"), nullable=False)
