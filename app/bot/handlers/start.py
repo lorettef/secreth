@@ -9,6 +9,7 @@ from aiogram.types import Message
 from app.bot.keyboards.membership import club_menu, club_picker, join_invite
 from app.locales import ru
 from app.services.membership import MembershipError, MembershipService, TelegramProfile
+from app.services.sessions import SessionService
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -16,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 @router.message(CommandStart())
 async def start(
-    message: Message, command: CommandObject, membership_service: MembershipService
+    message: Message, command: CommandObject, membership_service: MembershipService,
+    session_service: SessionService,
 ) -> None:
     if message.from_user is None:
         return
@@ -39,7 +41,7 @@ async def start(
             club = clubs[0]
             await message.answer(
                 ru.club_menu_message(club.name, club.player_name, club.has_pending_link),
-                reply_markup=club_menu(club),
+                reply_markup=club_menu(club, await session_service.menu_state(user.id, club.id)),
             )
         else:
             await message.answer(ru.CHOOSE_CLUB, reply_markup=club_picker(clubs))

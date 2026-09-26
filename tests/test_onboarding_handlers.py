@@ -9,7 +9,7 @@ from aiogram import Bot
 from aiogram.filters import CommandObject
 from aiogram.types import CallbackQuery, Chat, Message, User
 
-from app.bot.callbacks import ClubAction, JoinInvite, ReviewLink
+from app.bot.callbacks import ClubAction, JoinInvite, ReviewLink, SessionAction, SessionStart
 from app.bot.handlers.admin import review_pending
 from app.bot.handlers.membership import club_action, join_club
 from app.bot.handlers.start import start
@@ -21,6 +21,14 @@ from app.services.membership import (
     MembershipError,
     MembershipErrorCode,
 )
+from app.services.sessions import SessionMenuState
+
+
+@pytest.fixture
+def session_service() -> AsyncMock:
+    service = AsyncMock()
+    service.menu_state.return_value = SessionMenuState(None, False)
+    return service
 
 
 @pytest.fixture
@@ -51,7 +59,7 @@ def callback(monkeypatch: pytest.MonkeyPatch, message: tuple[Message, AsyncMock]
 
 
 @pytest.mark.asyncio
-async def test_start_invite_shows_club_and_join_button(message: tuple[Message, AsyncMock]) -> None:
+async def test_start_invite_shows_club_and_join_button(message: tuple[Message, AsyncMock], session_service: AsyncMock) -> None:
     telegram_message, answer = message
     invite_id = UUID(int=1)
     service = AsyncMock()
@@ -61,6 +69,7 @@ async def test_start_invite_shows_club_and_join_button(message: tuple[Message, A
         telegram_message,
         CommandObject(command="start", args="invite_secret-token"),
         service,
+        session_service,
     )
 
     service.register_telegram_user.assert_awaited_once()
@@ -74,13 +83,14 @@ async def test_start_invite_shows_club_and_join_button(message: tuple[Message, A
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role,has_admin_button", [(MembershipRole.PLAYER, False), (MembershipRole.ADMIN, True)])
 async def test_start_existing_member_shows_role_menu(
-    message: tuple[Message, AsyncMock], role: MembershipRole, has_admin_button: bool
+    message: tuple[Message, AsyncMock], role: MembershipRole, has_admin_button: bool,
+    session_service: AsyncMock,
 ) -> None:
     telegram_message, answer = message
     service = AsyncMock()
     service.list_clubs.return_value = (ClubView(UUID(int=2), "Saturday Club", role, "Max", False),)
 
-    await start(telegram_message, CommandObject(command="start"), service)
+    await start(telegram_message, CommandObject(command="start"), service, session_service)
 
     keyboard = answer.await_args.kwargs["reply_markup"]
     labels = [button.text for row in keyboard.inline_keyboard for button in row]
@@ -89,35 +99,35 @@ async def test_start_existing_member_shows_role_menu(
 
 
 @pytest.mark.asyncio
-async def test_invalid_invite_has_friendly_message(message: tuple[Message, AsyncMock]) -> None:
+async def test_invalid_invite_has_friendly_message(message: tuple[Message, AsyncMock], session_service: AsyncMock) -> None:
     telegram_message, answer = message
     service = AsyncMock()
     service.preview_invite.side_effect = MembershipError(MembershipErrorCode.INVITE_INVALID)
 
-    await start(telegram_message, CommandObject(command="start", args="invite_bad"), service)
+    await start(telegram_message, CommandObject(command="start", args="invite_bad"), service, session_service)
 
     assert answer.await_args.args[0] == ru.ERRORS["INVITE_INVALID"]
 
 
 @pytest.mark.asyncio
 async def test_stale_join_button_rechecks_invite(
-    callback: CallbackQuery, message: tuple[Message, AsyncMock]
+    callback: CallbackQuery, message: tuple[Message, AsyncMock], session_service: AsyncMock
 ) -> None:
     service = AsyncMock()
     service.join_invite.side_effect = MembershipError(MembershipErrorCode.INVITE_EXPIRED)
 
-    await join_club(callback, JoinInvite(invite_id=UUID(int=3)), service)
+    await join_club(callback, JoinInvite(invite_id=UUID(int=3)), service, session_service)
 
     assert message[1].await_args.args[0] == ru.ERRORS["INVITE_EXPIRED"]
 
 
 @pytest.mark.asyncio
-async def test_inaccessible_callback_message_uses_alert(callback: CallbackQuery) -> None:
+async def test_inaccessible_callback_message_uses_alert(callback: CallbackQuery, session_service: AsyncMock) -> None:
     callback = callback.model_copy(update={"message": None})
     service = AsyncMock()
     service.join_invite.side_effect = MembershipError(MembershipErrorCode.INVITE_EXPIRED)
 
-    await join_club(callback, JoinInvite(invite_id=UUID(int=3)), service)
+    await join_club(callback, JoinInvite(invite_id=UUID(int=3)), service, session_service)
 
     callback.answer.assert_awaited_once_with(ru.ERRORS["INVITE_EXPIRED"], show_alert=True)
 
@@ -140,6 +150,8 @@ def test_callback_payloads_fit_telegram_limit() -> None:
     assert JoinInvite.unpack(JoinInvite(invite_id=identifier).pack()).invite_id == identifier
     assert len(ClubAction(club_id=identifier, action="invite").pack().encode()) <= 64
     assert len(ReviewLink(request_id=identifier, action="approve").pack().encode()) <= 64
+    assert len(SessionAction(session_id=identifier, action="transfer").pack().encode()) <= 64
+    assert len(SessionStart(club_id=identifier).pack().encode()) <= 64
 
 
 @pytest.mark.asyncio
@@ -154,6 +166,7 @@ async def test_admin_invite_button_returns_deep_link(
     action: str,
     expected_uses: int | None,
     has_expiry: bool,
+    session_service: AsyncMock,
 ) -> None:
     service = AsyncMock()
     service.create_invite.return_value = "random-token"
@@ -162,7 +175,7 @@ async def test_admin_invite_button_returns_deep_link(
     bot = Bot(token="123456:example")
     callback.as_(bot)
     try:
-        await club_action(callback, ClubAction(club_id=UUID(int=6), action=action), service)
+        await club_action(callback, ClubAction(club_id=UUID(int=6), action=action), service, session_service)
     finally:
         await bot.session.close()
 

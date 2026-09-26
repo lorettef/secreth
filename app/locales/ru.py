@@ -22,6 +22,46 @@ LINK_APPROVED = "Игрок привязан к Telegram-пользовател�
 LINK_REJECTED = "Заявка отклонена."
 GENERIC_ERROR = "Не удалось выполнить действие. Попробуйте позже."
 INVALID_ACTION = "Эта кнопка больше не действует. Откройте /start."
+START_SESSION_BUTTON = "🍻 Начать игровой вечер"
+OPEN_SESSION_BUTTON = "🍻 Текущий игровой вечер"
+START_SELECTED_BUTTON = "🍻 Начать с выбранным составом"
+RECORD_GAME_BUTTON = "➕ Записать игру"
+CHANGE_ROSTER_BUTTON = "👥 Изменить состав"
+SESSION_SUMMARY_BUTTON = "📊 Итоги вечера"
+TRANSFER_BUTTON = "🔄 Передать ведение"
+FINISH_BUTTON = "🏁 Завершить вечер"
+ARRIVED_BUTTON = "➕ Кто-то пришёл"
+LEFT_BUTTON = "🚪 Кто-то ушёл"
+CONFIRM_BUTTON = "✅ Подтвердить"
+CANCEL_BUTTON = "❌ Отмена"
+GAME_NEXT_PHASE = "Запись игры будет реализована на следующем этапе."
+GAME_NEEDS_PLAYERS = "Для записи партии нужно минимум 5 присутствующих игроков."
+NO_ROSTER_CHOICES = "Подходящих игроков нет."
+SESSION_STALE = "Этот экран устарел. Откройте игровой вечер заново."
+SESSION_ERRORS = {
+    "NO_ACCESS": "Нет доступа к этому клубу.",
+    "PLAYER_REQUIRED": "Сначала привяжите активного игрока к своему Telegram.",
+    "SESSION_NOT_FOUND": "Игровой вечер не найден.",
+    "SESSION_FINISHED": "Этот игровой вечер уже завершён.",
+    "NOT_STATISTICIAN": "Управлять вечером может текущий статист или администратор.",
+    "PLAYER_NOT_AVAILABLE": "Этот игрок недоступен для состава.",
+    "ALREADY_PRESENT": "Игрок уже в текущем составе.",
+    "NOT_PRESENT": "Игрока нет в текущем составе.",
+    "INVALID_SELECTION": "Состав изменился. Выберите игроков заново.",
+    "TRANSFER_NOT_AVAILABLE": "Этому игроку нельзя передать ведение.",
+}
+
+
+def session_message(view) -> str:
+    roster = ", ".join(p.name for p in view.roster) or "никого нет"
+    status = "Активен" if view.status.value == "ACTIVE" else "Завершён"
+    return (
+        f"🍻 {view.club_name} · {status}\n"
+        f"Статист: {view.statistician_name}\n"
+        f"Сейчас за столом ({len(view.roster)}): {roster}\n"
+        f"Завершённых игр: {view.game_count}\n"
+        f"Счёт Liberal/Fascist: {view.liberal_wins}:{view.fascist_wins}"
+    )
 
 ERRORS = {
     "USER_NOT_FOUND": "Сначала откройте /start.",

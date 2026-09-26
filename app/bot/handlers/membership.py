@@ -11,20 +11,22 @@ from app.bot.handlers.common import reply, reply_error, reply_unexpected
 from app.bot.keyboards.membership import admin_menu, back_to_club, club_menu, player_choices
 from app.locales import ru
 from app.services.membership import MembershipError, MembershipService
+from app.services.sessions import SessionService
 
 router = Router()
 
 
 @router.callback_query(JoinInvite.filter())
 async def join_club(
-    callback: CallbackQuery, callback_data: JoinInvite, membership_service: MembershipService
+    callback: CallbackQuery, callback_data: JoinInvite, membership_service: MembershipService,
+    session_service: SessionService,
 ) -> None:
     try:
         club = await membership_service.join_invite(callback.from_user.id, callback_data.invite_id)
         await reply(
             callback,
             ru.club_menu_message(club.name, club.player_name, club.has_pending_link),
-            club_menu(club),
+            club_menu(club, await session_service.menu_state(callback.from_user.id, club.id)),
         )
     except MembershipError as error:
         await reply_error(callback, error)
@@ -34,19 +36,21 @@ async def join_club(
 
 @router.callback_query(ClubAction.filter())
 async def club_action(
-    callback: CallbackQuery, callback_data: ClubAction, membership_service: MembershipService
+    callback: CallbackQuery, callback_data: ClubAction, membership_service: MembershipService,
+    session_service: SessionService,
 ) -> None:
     try:
         club_id = callback_data.club_id
         if callback_data.action == "new":
             club = await membership_service.create_new_player(callback.from_user.id, club_id)
-            await reply(callback, ru.club_menu_message(club.name, club.player_name, False), club_menu(club))
+            await reply(callback, ru.club_menu_message(club.name, club.player_name, False),
+                        club_menu(club, await session_service.menu_state(callback.from_user.id, club.id)))
         elif callback_data.action == "menu":
             club = await membership_service.get_club(callback.from_user.id, club_id)
             await reply(
                 callback,
                 ru.club_menu_message(club.name, club.player_name, club.has_pending_link),
-                club_menu(club),
+                club_menu(club, await session_service.menu_state(callback.from_user.id, club.id)),
             )
         elif callback_data.action == "admin":
             club = await membership_service.get_admin_club(callback.from_user.id, club_id)

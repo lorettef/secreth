@@ -11,10 +11,13 @@ from app.bot.callbacks import (
     PlayerPage,
     ReviewLink,
     ReviewPage,
+    SessionAction,
+    SessionStart,
 )
 from app.domain.enums import MembershipRole
 from app.locales import ru
 from app.services.membership import ClubView, PendingLinkView, PlayerChoice
+from app.services.sessions import SessionMenuState
 
 
 def join_invite(invite_id: UUID) -> InlineKeyboardMarkup:
@@ -34,8 +37,14 @@ def club_picker(clubs: tuple[ClubView, ...]) -> InlineKeyboardMarkup:
     )
 
 
-def club_menu(club: ClubView) -> InlineKeyboardMarkup:
+def club_menu(club: ClubView, session_state: SessionMenuState | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    if session_state and session_state.active_session_id:
+        rows.append([InlineKeyboardButton(text=ru.OPEN_SESSION_BUTTON, callback_data=SessionAction(
+            session_id=session_state.active_session_id, action="view").pack())])
+    elif session_state and session_state.can_start:
+        rows.append([InlineKeyboardButton(text=ru.START_SESSION_BUTTON, callback_data=SessionStart(
+            club_id=club.id).pack())])
     if club.player_name is not None:
         rows.append(
             [InlineKeyboardButton(text=ru.PROFILE_BUTTON, callback_data=ClubAction(club_id=club.id, action="profile").pack())]

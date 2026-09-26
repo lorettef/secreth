@@ -31,3 +31,20 @@ class ReviewPage(CallbackData, prefix="reviews"):
 class ReviewLink(CallbackData, prefix="review"):
     request_id: UUID
     action: str
+
+
+class SessionAction(CallbackData, prefix="sess"):
+    session_id: UUID
+    action: str
+
+
+class SessionStart(CallbackData, prefix="ss"):
+    club_id: UUID
+
+
+class SessionPick(CallbackData, prefix="sp"):
+    player_id: UUID
+
+
+class SessionStep(CallbackData, prefix="step"):
+    action: str
