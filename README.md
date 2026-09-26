@@ -29,11 +29,13 @@ docker compose down
 
 ## Миграции
 
-Alembic настроен, но в Phase 1 таблиц и миграций ещё нет. Запуск текущей ревизии:
+Миграция `0001_initial_models` создаёт таблицы и ограничения. Применить её:
 
 ```bash
 docker compose run --rm app alembic upgrade head
 ```
+
+Для локального Alembic задайте `DATABASE_URL` в окружении процесса. Команды `alembic downgrade base` и повторный `alembic upgrade head` проверяйте только на отдельной тестовой базе: downgrade удаляет таблицы.
 
 ## Тесты
 
@@ -44,6 +46,8 @@ python -m venv .venv
 .venv/bin/pip install -e '.[test]'
 .venv/bin/pytest
 ```
+
+Интеграционные тесты требуют отдельную PostgreSQL-базу с именем, оканчивающимся на `_test`. Создайте её и задайте `TEST_DATABASE_URL` в формате `postgresql+asyncpg://user:password@host:port/database_test` перед запуском pytest. Тесты применяют миграцию к этой базе и откатывают данные каждого теста транзакцией. Если переменная не задана, интеграционные тесты пропускаются.
 
 Через Docker без установки Python на хосте:
 
