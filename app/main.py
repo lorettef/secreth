@@ -12,11 +12,13 @@ from app.bot.handlers.membership import router as membership_router
 from app.bot.handlers.admin import router as admin_router
 from app.bot.handlers.sessions import router as sessions_router
 from app.bot.handlers.games import router as games_router
+from app.bot.handlers.events import router as events_router
 from app.config import Settings
 from app.db.session import create_engine, create_session_factory
 from app.services.membership import MembershipService
 from app.services.sessions import SessionService
 from app.services.games import GameService
+from app.services.events import EventService
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ def create_dispatcher() -> Dispatcher:
     dispatcher.include_router(admin_router)
     dispatcher.include_router(sessions_router)
     dispatcher.include_router(games_router)
+    dispatcher.include_router(events_router)
     return dispatcher
 
 
@@ -43,6 +46,7 @@ async def main() -> None:
     membership_service = MembershipService(session_factory)
     session_service = SessionService(session_factory)
     game_service = GameService(session_factory)
+    event_service = EventService(session_factory)
     try:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
@@ -53,6 +57,7 @@ async def main() -> None:
             await create_dispatcher().start_polling(
                 bot, membership_service=membership_service, session_service=session_service,
                 game_service=game_service,
+                event_service=event_service,
             )
     finally:
         await engine.dispose()

@@ -79,6 +79,55 @@ GAME_ERRORS = {
     "STALE": "Эта кнопка больше не актуальна.",
 }
 
+EVENT_TYPE_LABELS = {
+    "RUIN": "💥 Руина", "PALIVO": "🎭 Палево", "IQ_200": "🧠 200 IQ", "PROPHET": "🔮 Пророк",
+}
+RUIN_REASON_LABELS = {
+    "WRONG_VOTE": "🗳 Неправильное голосование",
+    "ROLE_REVEAL": "🎭 Спалил / неправильно отыграл роль",
+    "BAD_CHANCELLOR": "👑 Неправильный выбор канцлера",
+    "BAD_EXECUTION": "🔫 Неправильное убийство",
+    "LEAKED_INFO": "🗣 Сказал лишнюю информацию",
+    "TACTICAL_ERROR": "🧠 Тактическая ошибка", "OTHER": "❓ Другое",
+}
+EVENT_ERRORS = {
+    "NOT_FOUND": "Партия или момент не найдены.",
+    "NO_ACCESS": "Моменты текущего вечера может добавлять и исправлять статист или ADMIN; исторические изменения и удаление доступны ADMIN.",
+    "INVALID_EVENT": "Проверьте игрока, тип события, причину Руины и комментарий (до 500 символов).",
+    "DRAFT_CONFLICT": "Этот момент уже изменён или удалён. Начните новый ввод.",
+    "STALE": "Эта кнопка больше не актуальна.",
+}
+EVENT_TYPE_PROMPT = "✨ Что произошло?"
+EVENT_PLAYER_PROMPT = "👤 Кто? Выберите участника этой партии."
+EVENT_REASON_PROMPT = "💥 Почему Руина?"
+EVENT_ADMITTED_PROMPT = "🙋 Игрок сам признал Руину?"
+EVENT_COMMENT_PROMPT = "💬 Добавить комментарий? Ответьте на запрос ниже или нажмите «Пропустить»."
+EVENT_COMMENT_REPLY = "💬 Ответьте на это сообщение: комментарий до 500 символов."
+EVENT_COMMENT_INVALID = "Комментарий должен содержать от 1 до 500 символов. Можно нажать «Пропустить»."
+EVENT_COMMENT_STALE = "Ответьте на актуальный запрос комментария; этот текст не добавлен."
+EVENT_REVIEW = "✅ Проверка момента"
+EVENT_SAVED = "✅ Момент добавлен"
+EVENT_CANCELLED = "Добавление момента отменено."
+EVENT_ADD = "✨ Добавить момент"
+EVENT_MORE = "✨ Добавить ещё"
+EVENT_GAME = "🎲 К игре"
+EVENT_HOME = "🏠 К вечеру"
+EVENT_SKIP = "Пропустить"
+EVENT_YES = "Да"
+EVENT_NO = "Нет"
+EVENT_SAVE = "✅ Сохранить"
+GAME_VICTORY_UNKNOWN = "Способ победы неизвестен"
+
+
+def event_card(player_name, event_type, ruin_reason, self_admitted, comment) -> str:
+    lines = [EVENT_TYPE_LABELS[event_type.value], f"Игрок: {player_name}"]
+    if event_type.value == "RUIN":
+        lines += [f"Причина: {RUIN_REASON_LABELS[ruin_reason.value]}",
+                  f"Сам признал: {EVENT_YES.lower() if self_admitted else EVENT_NO.lower()}"]
+    if comment:
+        lines += ["", "Комментарий:", comment]
+    return "\n".join(lines)
+
 
 def session_message(view) -> str:
     roster = ", ".join(p.name for p in view.roster) or "никого нет"

@@ -85,3 +85,38 @@ class GameAfter(CallbackData, prefix="gf2"):
     game_id: UUID
     # m/n/h/s/c: moment/next/home/same/changed.
     action: str
+
+
+class GameCard(CallbackData, prefix="gcard"):
+    game_id: UUID
+
+
+class EventStart(CallbackData, prefix="estart"):
+    game_id: UUID
+
+
+class EventChoice(CallbackData, prefix="ec"):
+    flow: str
+    kind: str
+    code: str
+
+
+class EventPick(CallbackData, prefix="ep"):
+    flow: str
+    player_id: UUID
+
+
+class EventAction(CallbackData, prefix="ea"):
+    flow: str
+    action: str
+
+
+class EventSave(CallbackData, prefix="es"):
+    flow: str
+    draft_id: UUID
+
+
+class EventAfter(CallbackData, prefix="ef"):
+    flow: str
+    event_id: UUID
+    action: str

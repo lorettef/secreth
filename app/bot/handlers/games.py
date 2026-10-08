@@ -20,6 +20,7 @@ from app.domain.victories import VictoryValidationError, validate_victory
 from app.locales import ru
 from app.services.games import GameError, GameErrorCode, GamePerson, GameResult, GameService
 from app.services.sessions import SessionError, SessionService
+from app.services.events import EventError, EventErrorCode, EventService
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ async def _error(callback: CallbackQuery, error: Exception) -> None:
         await reply(callback, ru.SESSION_ERRORS[error.code.value])
     elif isinstance(error, VictoryValidationError):
         await reply(callback, ru.GAME_ERRORS["INVALID_VICTORY"])
+    elif isinstance(error, EventError):
+        await reply(callback, ru.EVENT_ERRORS[error.code.value])
     else:
         logger.exception("Game wizard failed")
         await reply(callback, ru.GENERIC_ERROR)
@@ -261,7 +264,7 @@ def _review_text(data: dict) -> str:
 
 def _saved_text(game: GameResult) -> str:
     return (f"✅ Игра #{game.sequence_number} сохранена\n"
-            f"Победа: {game.winner.value}\nПричина: {VICTORY_LABELS[game.victory_type]}\n"
+            f"Победа: {game.winner.value}\nПричина: {VICTORY_LABELS.get(game.victory_type, ru.GAME_VICTORY_UNKNOWN)}\n"
             f"👑 Hitler: {game.hitler.name}\n"
             f"😈 Fascists: {', '.join(p.name for p in game.fascists)}")
 
@@ -302,7 +305,8 @@ async def save(callback: CallbackQuery, callback_data: GameSave, state: FSMConte
 
 @router.callback_query(GameAfter.filter())
 async def after(callback: CallbackQuery, callback_data: GameAfter, state: FSMContext,
-                game_service: GameService, session_service: SessionService) -> None:
+                game_service: GameService, session_service: SessionService,
+                event_service: EventService | None = None) -> None:
     try:
         data = await state.get_data()
         action = callback_data.action
@@ -318,8 +322,10 @@ async def after(callback: CallbackQuery, callback_data: GameAfter, state: FSMCon
             await state.clear()
             await reply(callback, ru.session_message(view), session_view(view))
         elif action == "m":
-            await reply(callback, "Добавление моментов будет реализовано на следующем этапе.",
-                        keyboards.saved(game, data["flow"]))
+            from app.bot.handlers.events import begin_event
+            if event_service is None:
+                raise EventError(EventErrorCode.STALE)
+            await begin_event(callback, state, event_service, game.id)
         elif action == "n":
             await game_service.setup(callback.from_user.id, game.session_id)
             data = await _screen(state, data, stage="next_roster")
