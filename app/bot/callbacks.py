@@ -42,11 +42,18 @@ class SessionStart(CallbackData, prefix="ss"):
     club_id: UUID
 
 
-class SessionPick(CallbackData, prefix="sp"):
+class SessionPick(CallbackData, prefix="sp2"):
+    flow: str
     player_id: UUID
 
 
-class SessionStep(CallbackData, prefix="step"):
+class SessionStep(CallbackData, prefix="step2"):
+    flow: str
+    action: str
+
+
+class RecoveryAction(CallbackData, prefix="rec"):
+    request_id: UUID
     action: str
 
 

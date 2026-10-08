@@ -30,6 +30,7 @@ from app.domain.enums import (
     MembershipRole,
     MembershipStatus,
     PlayerLinkStatus,
+    RecoveryStatus,
     RuinReason,
     SessionStatus,
     Team,
@@ -243,6 +244,40 @@ class SessionParticipant(Base):
 
     session: Mapped[GameSession] = relationship(back_populates="participants")
     player: Mapped[Player] = relationship()
+
+
+class StatisticianRecovery(Base):
+    __tablename__ = "statistician_recoveries"
+    __table_args__ = (Index("ix_statistician_recoveries_session_status", "session_id", "status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("game_sessions.id"), nullable=False)
+    initiator_telegram_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_users.id"), nullable=False)
+    initiator_player_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    initiator_presence_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("session_participants.id"))
+    candidate_player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    candidate_presence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("session_participants.id"), nullable=False)
+    previous_statistician_player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    status: Mapped[RecoveryStatus] = mapped_column(
+        Enum(RecoveryStatus, name="ck_statistician_recoveries_status", native_enum=False,
+             create_constraint=True), server_default="PENDING", nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StatisticianConfirmation(Base):
+    __tablename__ = "statistician_confirmations"
+    __table_args__ = (
+        UniqueConstraint("recovery_id", "telegram_user_id", name="uq_statistician_confirmation_user"),
+        UniqueConstraint("recovery_id", "player_id", name="uq_statistician_confirmation_player"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    recovery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("statistician_recoveries.id"), nullable=False)
+    telegram_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_users.id"), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    presence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("session_participants.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Game(TimestampMixin, Base):

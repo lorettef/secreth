@@ -132,3 +132,30 @@ def test_missing_membership_role_denies_access(player: ActorContext) -> None:
     actor = replace(player, membership_role=None)
     assert not can_start_session(actor, CLUB_ID, has_active_session=False)
     assert not can_manage_club(actor, CLUB_ID)
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_recovery_request_requires_presence_except_admin(player, active_session, present):
+    from app.domain.permissions import can_request_recovery
+    assert can_request_recovery(player, active_session, is_present=present) is present
+    admin = replace(player, membership_role=MembershipRole.ADMIN, player_id=None)
+    assert can_request_recovery(admin, active_session, is_present=present)
+    assert not can_request_recovery(player, replace(active_session, status=SessionStatus.FINISHED), is_present=True)
+    assert not can_request_recovery(player, replace(active_session, club_id=OTHER_CLUB_ID), is_present=True)
+    assert not can_request_recovery(replace(player, membership_status=MembershipStatus.BLOCKED), active_session, is_present=True)
+
+
+@pytest.mark.parametrize("present,active,initiator,candidate,allowed", [
+    (True, True, OTHER_PLAYER_ID, UUID(int=5), True),
+    (False, True, OTHER_PLAYER_ID, UUID(int=5), False),
+    (True, False, OTHER_PLAYER_ID, UUID(int=5), False),
+    (True, True, PLAYER_ID, UUID(int=5), False),
+    (True, True, OTHER_PLAYER_ID, PLAYER_ID, False),
+])
+def test_recovery_confirmation_requires_other_active_present_player(
+    player, active_session, present, active, initiator, candidate, allowed
+):
+    from app.domain.permissions import can_confirm_recovery
+    assert can_confirm_recovery(replace(player, player_is_active=active), active_session,
+                                is_present=present, initiator_player_id=initiator,
+                                candidate_player_id=candidate) is allowed

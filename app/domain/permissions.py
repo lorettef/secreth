@@ -59,6 +59,31 @@ def can_create_game(actor: ActorContext, session: SessionContext) -> bool:
     return can_manage_current_session(actor, session)
 
 
+def can_request_recovery(
+    actor: ActorContext, session: SessionContext, *, is_present: bool
+) -> bool:
+    if not _is_active_member(actor) or actor.club_id != session.club_id:
+        return False
+    return session.status is SessionStatus.ACTIVE and (
+        _is_admin(actor) or (actor.player_is_active and actor.player_id is not None and is_present)
+    )
+
+
+def can_confirm_recovery(
+    actor: ActorContext, session: SessionContext, *, is_present: bool,
+    initiator_player_id: UUID | None, candidate_player_id: UUID,
+) -> bool:
+    return (
+        _is_active_member(actor)
+        and actor.club_id == session.club_id
+        and session.status is SessionStatus.ACTIVE
+        and actor.player_is_active
+        and actor.player_id is not None
+        and is_present
+        and actor.player_id not in (initiator_player_id, candidate_player_id)
+    )
+
+
 def can_edit_game(actor: ActorContext, session: SessionContext) -> bool:
     if not _is_active_member(actor) or actor.club_id != session.club_id:
         return False

@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import SimpleEventIsolation
 from sqlalchemy import text
 
 from app.bot.handlers.start import router as start_router
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_dispatcher() -> Dispatcher:
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(start_router)
     dispatcher.include_router(membership_router)
     dispatcher.include_router(admin_router)

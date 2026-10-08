@@ -36,6 +36,22 @@ CONFIRM_BUTTON = "✅ Подтвердить"
 CANCEL_BUTTON = "❌ Отмена"
 NO_ROSTER_CHOICES = "Подходящих игроков нет."
 SESSION_STALE = "Этот экран устарел. Откройте игровой вечер заново."
+SESSION_HELP_BUTTON = "⚙️ Помощь"
+RECOVERY_BUTTON = "⚙️ Проблема со статистом"
+RECOVERY_START_BUTTON = "Сменить статиста"
+RECOVERY_HELP = "Если статист недоступен, присутствующие участники могут выбрать нового. Нужны подтверждения двух других участников; администратор может сменить статиста сразу."
+RECOVERY_CHOOSE = "Кто из присутствующих будет новым статистом?"
+RECOVERY_CONFIRM_BUTTON = "✅ Подтвердить смену"
+RECOVERY_REFRESH_BUTTON = "🔄 Обновить"
+RECOVERY_SHARE = "Передайте эту ссылку двум другим присутствующим участникам. Инициатор и кандидат не подтверждают заявку."
+SESSION_START_PROMPT = "Выберите присутствующих игроков. Вечер можно начать и с составом меньше 5 человек."
+SESSION_SELECT_PROMPT = "Выберите присутствующих игроков:"
+SESSION_PICK_PROMPT = "Выберите игрока:"
+SESSION_CANCELLED = "Действие отменено. Откройте /start для главного меню."
+SESSION_FINISH_PROMPT = "Завершить игровой вечер? После завершения статист больше не сможет добавлять игры."
+SESSION_STARTED = "Игровой вечер начался.\n"
+SESSION_ALREADY_STARTED = "Вечер уже начат.\n"
+SESSION_CHOICE_TITLES = {"add": "Кто пришёл?", "remove": "Кто ушёл?", "transfer": "Кому передать ведение?", "recovery": RECOVERY_CHOOSE}
 SESSION_ERRORS = {
     "NO_ACCESS": "Нет доступа к этому клубу.",
     "PLAYER_REQUIRED": "Сначала привяжите активного игрока к своему Telegram.",
@@ -47,6 +63,8 @@ SESSION_ERRORS = {
     "NOT_PRESENT": "Игрока нет в текущем составе.",
     "INVALID_SELECTION": "Состав изменился. Выберите игроков заново.",
     "TRANSFER_NOT_AVAILABLE": "Этому игроку нельзя передать ведение.",
+    "STALE": SESSION_STALE,
+    "CONFIRMATION_NOT_ALLOWED": "Подтверждать могут только другие активные присутствующие участники этого вечера.",
 }
 GAME_ERRORS = {
     "NOT_FOUND": "Партия или игровой вечер не найдены.",
@@ -71,6 +89,12 @@ def session_message(view) -> str:
         f"Завершённых игр: {view.game_count}\n"
         f"Счёт Liberal/Fascist: {view.liberal_wins}:{view.fascist_wins}"
     )
+
+
+def recovery_message(view) -> str:
+    if view.status.value == "APPLIED":
+        return f"📋 Новый статист: {view.candidate_name}"
+    return f"⚙️ Смена статиста на {view.candidate_name}\nПодтверждений: {view.confirmations}/2."
 
 ERRORS = {
     "USER_NOT_FOUND": "Сначала откройте /start.",

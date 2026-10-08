@@ -25,6 +25,12 @@ class SessionStatus(str, enum.Enum):
     VOID = "VOID"
 
 
+class RecoveryStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPLIED = "APPLIED"
+    STALE = "STALE"
+
+
 class GameStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     VOID = "VOID"
