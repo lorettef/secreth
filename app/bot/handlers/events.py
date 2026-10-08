@@ -67,6 +67,22 @@ async def begin_event(callback: CallbackQuery, state: FSMContext,
     })
 
 
+async def begin_edit(callback, state, event, setup, revision):
+    """Reuse the screen-bound event wizard; Save calls the existing update service."""
+    if await state.get_state() is not None:
+        raise EventError(EventErrorCode.STALE)
+    await state.set_state(EventFlow.active)
+    await _show(callback, state, {
+        "game_id": str(event.game_id), "session_id": str(setup.session_id), "draft_id": str(event.id),
+        "edit_id": str(event.id), "revision": revision, "stage": "type",
+        "participants": [(str(p.id), p.name) for p in setup.participants],
+        "event_type": event.event_type.value, "player_id": str(event.player_id),
+        "ruin_reason": event.ruin_reason.value if event.ruin_reason else None,
+        "self_admitted": event.self_admitted, "comment": event.comment,
+        "original_comment": event.comment,
+    })
+
+
 async def _require(state: FSMContext, flow: str, stage: str | None = None) -> dict:
     data = await state.get_data()
     if (await state.get_state() != EventFlow.active.state or not data.get("draft_id")
@@ -102,7 +118,7 @@ async def _show(callback: CallbackQuery, state: FSMContext, data: dict, **change
         text = ru.EVENT_ADMITTED_PROMPT
         keyboard = keyboards.choices({"y": ru.EVENT_YES, "n": ru.EVENT_NO}, "a", flow)
     elif stage == "comment":
-        text, keyboard = ru.EVENT_COMMENT_PROMPT, keyboards.comment(flow)
+        text, keyboard = ru.EVENT_COMMENT_PROMPT, keyboards.comment(flow, allow_clear=bool(current.get("edit_id")))
     else:
         text, keyboard = ru.EVENT_REVIEW + "\n\n" + _card(current), keyboards.review(UUID(current["draft_id"]), flow)
     await state.set_data(current)
@@ -159,7 +175,12 @@ async def pick_player(callback: CallbackQuery, callback_data: EventPick, state: 
 
 
 async def show_game(callback: CallbackQuery, state: FSMContext, game_id: UUID,
-                    game_service: GameService, event_service: EventService) -> None:
+                    game_service: GameService, event_service: EventService, history_service=None) -> None:
+    if history_service is not None:
+        from app.bot.handlers.history import show_card
+        await show_card(callback, history_service, game_id)
+        await state.clear()
+        return
     from app.bot.handlers.games import _saved_text
     game = await game_service.game(callback.from_user.id, game_id)
     setup = await event_service.setup(callback.from_user.id, game_id)
@@ -180,13 +201,15 @@ async def game_card(callback: CallbackQuery, callback_data: GameCard, state: FSM
 
 @router.callback_query(EventAction.filter())
 async def action(callback: CallbackQuery, callback_data: EventAction, state: FSMContext,
-                 game_service: GameService, event_service: EventService) -> None:
+                 game_service: GameService, event_service: EventService, history_service=None) -> None:
     try:
         data = await _require(state, callback_data.flow)
         if callback_data.action == "cancel":
-            await show_game(callback, state, UUID(data["game_id"]), game_service, event_service)
+            await show_game(callback, state, UUID(data["game_id"]), game_service, event_service, history_service)
             await _reply(callback, ru.EVENT_CANCELLED)
         elif callback_data.action == "skip" and data["stage"] == "comment":
+            await _show(callback, state, data, stage="review", comment=data.get("original_comment") if data.get("edit_id") else None)
+        elif callback_data.action == "clear" and data["stage"] == "comment" and data.get("edit_id"):
             await _show(callback, state, data, stage="review", comment=None)
         elif callback_data.action == "back":
             target = {"player": "type", "reason": "player", "admitted": "reason", "review": "comment"}.get(data["stage"])
@@ -241,11 +264,17 @@ async def save(callback: CallbackQuery, callback_data: EventSave, state: FSMCont
             data = await _require(state, callback_data.flow, "review")
             if data["draft_id"] != str(callback_data.draft_id):
                 raise EventError(EventErrorCode.STALE)
-            event, _ = await event_service.create_event(
-                callback.from_user.id, UUID(data["game_id"]), callback_data.draft_id,
-                UUID(data["player_id"]), EventType(data["event_type"]),
-                RuinReason(data["ruin_reason"]) if data["ruin_reason"] else None,
-                data["self_admitted"], data["comment"])
+            reason = RuinReason(data["ruin_reason"]) if data["ruin_reason"] else None
+            if data.get("edit_id"):
+                event = await event_service.update_event(callback.from_user.id, UUID(data["edit_id"]),
+                    player_id=UUID(data["player_id"]), event_type=EventType(data["event_type"]),
+                    ruin_reason=reason, self_admitted=data["self_admitted"], comment=data["comment"],
+                    expected_revision=data["revision"])
+            else:
+                event, _ = await event_service.create_event(
+                    callback.from_user.id, UUID(data["game_id"]), callback_data.draft_id,
+                    UUID(data["player_id"]), EventType(data["event_type"]), reason,
+                    data["self_admitted"], data["comment"])
             flow = secrets.token_urlsafe(12)
             await state.set_state(None)
             await state.set_data({"stage": "event_saved", "draft_id": str(event.id),
@@ -260,7 +289,7 @@ async def save(callback: CallbackQuery, callback_data: EventSave, state: FSMCont
 @router.callback_query(EventAfter.filter())
 async def after(callback: CallbackQuery, callback_data: EventAfter, state: FSMContext,
                 event_service: EventService, game_service: GameService,
-                session_service: SessionService) -> None:
+                session_service: SessionService, history_service=None) -> None:
     try:
         data = await state.get_data()
         if (await state.get_state() is not None or data.get("stage") != "event_saved"
@@ -272,7 +301,7 @@ async def after(callback: CallbackQuery, callback_data: EventAfter, state: FSMCo
         if callback_data.action == "m":
             await begin_event(callback, state, event_service, event.game_id)
         elif callback_data.action == "g":
-            await show_game(callback, state, event.game_id, game_service, event_service)
+            await show_game(callback, state, event.game_id, game_service, event_service, history_service)
         elif callback_data.action == "h":
             setup = await event_service.setup(callback.from_user.id, event.game_id)
             view = await session_service.view(callback.from_user.id, setup.session_id)

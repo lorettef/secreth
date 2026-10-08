@@ -14,6 +14,7 @@ from app.bot.handlers.sessions import router as sessions_router
 from app.bot.handlers.games import router as games_router
 from app.bot.handlers.events import router as events_router
 from app.bot.handlers.stats import router as stats_router
+from app.bot.handlers.history import router as history_router
 from app.config import Settings
 from app.db.session import create_engine, create_session_factory
 from app.services.membership import MembershipService
@@ -21,6 +22,7 @@ from app.services.sessions import SessionService
 from app.services.games import GameService
 from app.services.events import EventService
 from app.services.stats import StatsService
+from app.services.history import HistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ def create_dispatcher() -> Dispatcher:
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(start_router)
     dispatcher.include_router(stats_router)
+    dispatcher.include_router(history_router)
     dispatcher.include_router(membership_router)
     dispatcher.include_router(admin_router)
     dispatcher.include_router(sessions_router)
@@ -51,6 +54,7 @@ async def main() -> None:
     game_service = GameService(session_factory)
     event_service = EventService(session_factory)
     stats_service = StatsService(session_factory)
+    history_service = HistoryService(session_factory)
     try:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
@@ -63,6 +67,7 @@ async def main() -> None:
                 game_service=game_service,
                 event_service=event_service,
                 stats_service=stats_service,
+                history_service=history_service,
             )
     finally:
         await engine.dispose()

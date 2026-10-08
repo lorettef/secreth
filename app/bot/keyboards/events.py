@@ -30,8 +30,11 @@ def players(people: tuple[GamePerson, ...], flow: str) -> InlineKeyboardMarkup:
     ])
 
 
-def comment(flow: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[_action(ru.EVENT_SKIP, "skip", flow)], _navigation(flow)])
+def comment(flow: str, *, allow_clear: bool = False) -> InlineKeyboardMarkup:
+    rows = [[_action(ru.EVENT_KEEP_COMMENT if allow_clear else ru.EVENT_SKIP, "skip", flow)]]
+    if allow_clear:
+        rows.append([_action(ru.EVENT_CLEAR_COMMENT, "clear", flow)])
+    return InlineKeyboardMarkup(inline_keyboard=[*rows, _navigation(flow)])
 
 
 def review(draft_id: UUID, flow: str) -> InlineKeyboardMarkup:

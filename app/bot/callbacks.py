@@ -135,3 +135,25 @@ class StatsPlayer(CallbackData, prefix="statp"):
 class StatsSession(CallbackData, prefix="stats"):
     session_id: UUID
     page: int = 0
+
+
+class HistoryPage(CallbackData, prefix="hp"):
+    scope_id: UUID
+    section: str
+    page: int = 0
+
+
+class HistoryMutation(CallbackData, prefix="hm"):
+    entity_id: UUID
+    action: str
+    revision: str
+
+
+class HistoryStep(CallbackData, prefix="hs"):
+    flow: str
+    action: str
+
+
+class HistoryPick(CallbackData, prefix="hi"):
+    flow: str
+    player_id: UUID

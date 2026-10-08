@@ -181,7 +181,7 @@ def test_all_menus_and_pagination_callbacks_fit_telegram_limit():
 async def test_real_dispatcher_routes_stats_and_legacy_summary_without_clearing_game(ui, service):
     from app import main
     # Older session tests leave module routers attached after closing their dispatcher.
-    routers = [main.start_router, main.stats_router, main.membership_router, main.admin_router,
+    routers = [main.start_router, main.stats_router, main.history_router, main.membership_router, main.admin_router,
                main.sessions_router, main.games_router, main.events_router]
     for r in routers:
         r._parent_router = None

@@ -1,16 +1,18 @@
 """Snapshot-based events, permissions, idempotent writes and administrative audit."""
 
 import logging
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import AuditLog, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player, TelegramUser
-from app.domain.enums import EventType, GameStatus, MembershipStatus, RuinReason
+from app.domain.enums import EventType, GameStatus, MembershipRole, MembershipStatus, RuinReason, SessionStatus
+from app.domain.revisions import revision
 from app.domain.events import EventFields, EventValidationError, validate_event
 from app.domain.permissions import ActorContext, SessionContext, can_edit_game, can_manage_club
 from app.services.games import GamePerson
@@ -117,23 +119,29 @@ class EventService:
 
     async def update_event(self, telegram_id: int, event_id: UUID, *, player_id: UUID,
                            event_type: EventType, ruin_reason: RuinReason | None = None,
-                           self_admitted: bool = False, comment: str | None = None) -> EventView:
+                           self_admitted: bool = False, comment: str | None = None,
+                           expected_revision: str | None = None) -> EventView:
         async with self._session_factory() as db, db.begin():
             event, evening, actor = await self._editable_event(db, telegram_id, event_id)
+            if expected_revision is not None and expected_revision != self.revision(event):
+                raise EventError(EventErrorCode.STALE)
             fields = await self._validate(db, event.game_id, player_id, event_type,
                                           ruin_reason, self_admitted, comment)
             before = self._snapshot(event)
             event.player_id = player_id
             for key, value in asdict(fields).items():
                 setattr(event, key, value)
+            event.updated_at = datetime.now(timezone.utc)
             await db.flush()
             self._audit(db, evening, actor, event, "EVENT_EDIT", before, self._snapshot(event))
             logger.info("Event edited: event=%s", event_id)
             return await self._view(db, event)
 
-    async def delete_event(self, telegram_id: int, event_id: UUID) -> None:
+    async def delete_event(self, telegram_id: int, event_id: UUID, *, expected_revision: str | None = None) -> None:
         async with self._session_factory() as db, db.begin():
             event, evening, actor = await self._editable_event(db, telegram_id, event_id, admin_only=True)
+            if expected_revision is not None and expected_revision != self.revision(event):
+                raise EventError(EventErrorCode.STALE)
             self._audit(db, evening, actor, event, "EVENT_DELETE", self._snapshot(event), None)
             await db.delete(event)
             logger.info("Event deleted: event=%s", event_id)
@@ -147,6 +155,9 @@ class EventService:
         if lock:
             statement = statement.with_for_update()
         evening = await db.scalar(statement)
+        if lock:
+            game = await db.scalar(select(Game).where(Game.id == game_id).with_for_update()
+                                   .execution_options(populate_existing=True))
         row = (await db.execute(select(ClubMembership, Player)
             .join(TelegramUser, TelegramUser.id == ClubMembership.telegram_user_id)
             .outerjoin(Player, (Player.club_id == evening.club_id) &
@@ -158,7 +169,21 @@ class EventService:
         membership, player = row
         actor = ActorContext(evening.club_id, membership.role, membership.status,
                              player.id if player else None, bool(player and player.is_active))
+        if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and actor.membership_role is not MembershipRole.ADMIN:
+            raise EventError(EventErrorCode.NO_ACCESS)
         return game, evening, actor
+
+    @classmethod
+    def revision(cls, event: GameEvent) -> str:
+        return revision({**cls._snapshot(event), "updated_at": event.updated_at.isoformat()})
+
+    async def edit_setup(self, telegram_id: int, event_id: UUID) -> tuple[EventView, EventSetup, str]:
+        async with self._session_factory() as db, db.begin():
+            event, evening, actor = await self._editable_event(db, telegram_id, event_id)
+            rows = (await db.execute(select(Player.id, Player.display_name).join(GamePlayer)
+                                    .where(GamePlayer.game_id == event.game_id).order_by(Player.display_name, Player.id))).all()
+            return await self._view(db, event), EventSetup(event.game_id, evening.id,
+                   tuple(GamePerson(*row) for row in rows), True), self.revision(event)
 
     @staticmethod
     def _can_create(game: Game, evening: GameSession, actor: ActorContext) -> bool:
@@ -215,4 +240,5 @@ class EventService:
                action: str, before: dict | None, after: dict | None) -> None:
         db.add(AuditLog(club_id=evening.club_id, actor_player_id=actor.player_id,
                         entity_type="GameEvent", entity_id=event.id, action=action,
+                        created_at=func.clock_timestamp(),
                         before_data=before, after_data=after))

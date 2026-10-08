@@ -333,3 +333,108 @@ def stats_leaderboard(board) -> str:
             result = f"{stats_percent(player.overall_winrate)} · {player.total_wins}/{player.total_games} побед"
         lines.append(f"{index}. {player.display_name} — {result}")
     return text + "\n".join(lines)
+
+# History and administrative corrections.
+HISTORY_BUTTON = "📜 История"
+HISTORY_SECTIONS = {"sessions": "🍻 Игровые вечера", "recent": "🎲 Последние игры", "players": "👤 Игры игрока"}
+HISTORY_PLAYERS_ADMIN = "👥 Игроки"
+HISTORY_AUDIT = "📋 Журнал изменений"
+HISTORY_EMPTY = "Пока нет записей."
+HISTORY_INACTIVE = " · неактивен"
+HISTORY_TEAM_CHOICES = {"win_L": "🔵 Liberals", "win_F": "🔴 Fascists"}
+HISTORY_EDIT = "✏️ Исправить игру"
+HISTORY_VOID = "🗑 Отменить игру"
+HISTORY_RESTORE = "♻️ Восстановить игру"
+HISTORY_EVENT_EDIT = "✏️ Исправить событие"
+HISTORY_EVENT_DELETE = "🗑 Удалить событие"
+EVENT_KEEP_COMMENT = "✅ Оставить комментарий"
+EVENT_CLEAR_COMMENT = "🧹 Убрать комментарий"
+HISTORY_RENAME = "✏️ Переименовать"
+HISTORY_DEACTIVATE = "🚫 Деактивировать"
+HISTORY_REACTIVATE = "✅ Активировать"
+HISTORY_SAVE = "✅ Сохранить изменения"
+HISTORY_SAVED = "✅ Изменения сохранены"
+HISTORY_CANCELLED = "Изменения отменены."
+HISTORY_EDIT_MENU = "✏️ Исправление партии — черновик"
+HISTORY_EDIT_FIELDS = {"participants": "👥 Участники", "hitler": "👑 Hitler", "fascists": "😈 Fascists",
+                       "winner": "🏆 Победитель", "victory": "📜 Причина победы"}
+HISTORY_DONE = "✅ Выбор завершён"
+HISTORY_RENAME_PROMPT = "Отправьте новое имя ответом на это сообщение (1–255 символов)."
+HISTORY_CONFIRM = {
+    "gv": "Отменить эту игру?\nОна перестанет учитываться в статистике, но останется в истории администратора.",
+    "gr": "Восстановить эту игру? Она снова будет учитываться в статистике.",
+    "ed": "Удалить событие? Удаление будет записано в журнал изменений.",
+    "pd": "Деактивировать игрока? Его история и статистика сохранятся.",
+    "pr": "Активировать игрока? Он снова будет доступен для новых вечеров и партий.",
+    "pn": "Сохранить новое имя игрока?",
+}
+HISTORY_ERRORS = {
+    "STALE": "Эта кнопка больше не актуальна.",
+    "NO_ACCESS": "У вас нет прав на это действие в данном клубе.",
+    "NOT_FOUND": "Запись больше не доступна.",
+    "INVALID_NAME": "Имя должно содержать от 1 до 255 символов.",
+    "EVENT_CONFLICT": "Нельзя удалить игрока из партии: с ним связаны события. Сначала исправьте или удалите события.",
+    "INVALID_ROLES": "Проверьте состав и роли: 5–10 уникальных участников, один Hitler и нужное число Fascists.",
+    "INVALID_VICTORY": "Способ победы не соответствует победителю. Выберите корректный результат.",
+}
+
+
+def history_session_label(s, date: str) -> str:
+    return f"{date} — {s.games_count} партий · {s.status.value}"
+
+
+def history_game_label(g, date: str) -> str:
+    team = "🔵 Liberals" if g.winner.value == "LIBERAL" else "🔴 Fascists"
+    return f"#{g.sequence_number} · {date} · {team} · {g.player_count} игроков" + (" · VOID" if g.status.value == "VOID" else "")
+
+
+def history_card(card, date: str) -> str:
+    from app.domain.enums import GameRole
+    text = f"🎲 Игра #{card.game.sequence_number}\n📅 {date}\n👥 {card.game.player_count} игроков\nСтатус: {card.game.status.value}\n\n"
+    text += ("🔵 Победа Liberals" if card.game.winner.value == "LIBERAL" else "🔴 Победа Fascists")
+    text += f"\nПричина: {STATS_VICTORY_LABELS[card.victory_type.value]}"
+    for role in (GameRole.HITLER, GameRole.FASCIST, GameRole.LIBERAL):
+        names = [p.name for p in card.participants if card.roles[p.id] is role]
+        text += f"\n\n{STATS_ROLE_LABELS[role.value]}:\n" + ("\n".join(names) or "—")
+    return text
+
+
+def history_events(page, sequence: int) -> str:
+    lines = []
+    for e in page.items:
+        text = f"{EVENT_TYPE_LABELS[e.event_type.value]} · {e.player_name[:80]}"
+        if e.ruin_reason:
+            text += f" · {RUIN_REASON_LABELS[e.ruin_reason.value]}"
+        if e.self_admitted:
+            text += " · сам признал"
+        if e.comment:
+            text += "\n💬 " + e.comment[:100] + ("…" if len(e.comment) > 100 else "")
+        lines.append(text)
+    return f"✨ События игры #{sequence}\n\n" + ("\n\n".join(lines) or HISTORY_EMPTY)
+
+
+def history_player_card(p) -> str:
+    return f"👤 {p.name}\n" + ("Активен" if p.is_active else "Неактивен")
+
+
+def history_audit_label(entry, date: str) -> str:
+    return f"{date} · {entry.actor_name[:60]} · {entry.action} · {entry.entity_type}"
+
+
+def history_audit_detail(entry, date: str) -> str:
+    text = f"📋 {entry.action}\n{date}\nКто: {entry.actor_name}\nОбъект: {entry.entity_type}\nID: {entry.entity_id}"
+    # Whitelist business fields rather than dump arbitrary legacy JSON or credentials.
+    for title, data in (("Было", entry.before), ("Стало", entry.after)):
+        lines = [f"{key}: {data[key]}" for key in ("status", "winner", "victory_type", "display_name", "is_active",
+                  "event_type", "player_id", "ruin_reason", "self_admitted") if data and key in data]
+        if lines:
+            text += f"\n\n{title}:\n" + "\n".join(lines)
+    return text
+
+
+def history_edit_preview(data) -> str:
+    names = dict(data["candidates"])
+    participants = ", ".join(names.get(pid, "—") for pid in data["participants"])
+    return (f"👥 {participants}\n👑 Hitler: {names.get(data.get('hitler'), '—')}\n😈 Fascists: "
+            + ", ".join(names.get(pid, "—") for pid in data["fascists"])
+            + f"\n🏆 {data['winner']}\n📜 {STATS_VICTORY_LABELS.get(data.get('victory'), '—')}")

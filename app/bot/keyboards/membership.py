@@ -14,6 +14,7 @@ from app.bot.callbacks import (
     SessionAction,
     SessionStart,
     StatsPage,
+    HistoryPage,
 )
 from app.domain.enums import MembershipRole
 from app.locales import ru
@@ -48,6 +49,8 @@ def club_menu(club: ClubView, session_state: SessionMenuState | None = None) -> 
             club_id=club.id).pack())])
     for label, section in ((ru.STATS_MY_BUTTON, "my"), (ru.STATS_BUTTON, "menu"), (ru.RATINGS_BUTTON, "ratings")):
         rows.append([InlineKeyboardButton(text=label, callback_data=StatsPage(club_id=club.id, section=section).pack())])
+    rows.append([InlineKeyboardButton(text=ru.HISTORY_BUTTON,
+                callback_data=HistoryPage(scope_id=club.id, section="menu").pack())])
     if club.player_name is None and not club.has_pending_link:
         rows.extend(
             [
@@ -83,6 +86,10 @@ def player_choices(
 def admin_menu(club_id: UUID) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=ru.HISTORY_PLAYERS_ADMIN,
+                                  callback_data=HistoryPage(scope_id=club_id, section="manage").pack())],
+            [InlineKeyboardButton(text=ru.HISTORY_AUDIT,
+                                  callback_data=HistoryPage(scope_id=club_id, section="audit").pack())],
             [InlineKeyboardButton(text=ru.CREATE_INVITE_BUTTON, callback_data=ClubAction(club_id=club_id, action="invite").pack())],
             [InlineKeyboardButton(text=ru.CREATE_INVITE_ONCE_BUTTON, callback_data=ClubAction(club_id=club_id, action="invite1").pack())],
             [InlineKeyboardButton(text=ru.CREATE_INVITE_WEEK_BUTTON, callback_data=ClubAction(club_id=club_id, action="invite7").pack())],
