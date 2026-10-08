@@ -13,6 +13,7 @@ from app.bot.callbacks import (
     ReviewPage,
     SessionAction,
     SessionStart,
+    StatsPage,
 )
 from app.domain.enums import MembershipRole
 from app.locales import ru
@@ -45,10 +46,8 @@ def club_menu(club: ClubView, session_state: SessionMenuState | None = None) -> 
     elif session_state and session_state.can_start:
         rows.append([InlineKeyboardButton(text=ru.START_SESSION_BUTTON, callback_data=SessionStart(
             club_id=club.id).pack())])
-    if club.player_name is not None:
-        rows.append(
-            [InlineKeyboardButton(text=ru.PROFILE_BUTTON, callback_data=ClubAction(club_id=club.id, action="profile").pack())]
-        )
+    for label, section in ((ru.STATS_MY_BUTTON, "my"), (ru.STATS_BUTTON, "menu"), (ru.RATINGS_BUTTON, "ratings")):
+        rows.append([InlineKeyboardButton(text=label, callback_data=StatsPage(club_id=club.id, section=section).pack())])
     if club.player_name is None and not club.has_pending_link:
         rows.extend(
             [

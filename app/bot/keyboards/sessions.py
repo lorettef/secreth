@@ -4,7 +4,7 @@ from uuid import UUID
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.callbacks import ClubAction, RecoveryAction, SessionAction, SessionPick, SessionStep
+from app.bot.callbacks import ClubAction, RecoveryAction, SessionAction, SessionPick, SessionStep, StatsSession
 from app.locales import ru
 from app.services.sessions import RecoveryView, RosterPlayer, SessionView
 
@@ -15,7 +15,6 @@ def session_view(view: SessionView) -> InlineKeyboardMarkup:
         for label, action in (
             (ru.RECORD_GAME_BUTTON, "record"),
             (ru.CHANGE_ROSTER_BUTTON, "roster"),
-            (ru.SESSION_SUMMARY_BUTTON, "summary"),
             (ru.TRANSFER_BUTTON, "transfer"),
             (ru.FINISH_BUTTON, "finish"),
         ):
@@ -23,6 +22,8 @@ def session_view(view: SessionView) -> InlineKeyboardMarkup:
                 continue
             rows.append([InlineKeyboardButton(text=label, callback_data=SessionAction(
                 session_id=view.id, action=action).pack())])
+    rows.append([InlineKeyboardButton(text=ru.STATS_SESSION_BUTTON,
+                callback_data=StatsSession(session_id=view.id).pack())])
     if view.can_recover:
         rows.append([InlineKeyboardButton(text=ru.SESSION_HELP_BUTTON, callback_data=SessionAction(
             session_id=view.id, action="help").pack())])

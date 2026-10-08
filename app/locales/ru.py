@@ -4,7 +4,7 @@ JOIN_BUTTON = "Вступить"
 NEW_PLAYER_BUTTON = "Я новый игрок"
 EXISTING_PLAYER_BUTTON = "Я уже есть в статистике"
 ADMIN_BUTTON = "⚙️ Управление клубом"
-PROFILE_BUTTON = "👤 Мой профиль"
+PROFILE_BUTTON = "👤 Моя статистика"
 CREATE_INVITE_BUTTON = "🔗 Создать приглашение"
 CREATE_INVITE_ONCE_BUTTON = "🔗 Приглашение на 1 вход"
 CREATE_INVITE_WEEK_BUTTON = "🔗 Приглашение на 7 дней"
@@ -205,3 +205,131 @@ def pending_details(request) -> str:
         f"Исторический игрок: {request.player_name}\n"
         "Подтвердить привязку?"
     )
+
+# Statistics: values remain numeric in the service; rendering is plain text.
+STATS_MY_BUTTON = PROFILE_BUTTON
+STATS_BUTTON = "📊 Статистика"
+RATINGS_BUTTON = "🏆 Рейтинги"
+STATS_SESSION_BUTTON = "📊 Статистика вечера"
+STATS_SECTIONS = {
+    "players": "👤 По игрокам", "roles": "🎭 По ролям", "ruin": "💥 Руины",
+    "moments": "✨ Моменты", "sessions": "🍻 По вечерам", "club": "🌍 Общая статистика клуба",
+}
+STATS_BOARD_LABELS = {
+    "overall": "🔥 Общий winrate", "liberal": "🔵 Liberal", "fascist": "😈 Fascist",
+    "hitler": "👑 Hitler", "ruin": "💥 Руины", "iq": "🧠 200 IQ",
+}
+STATS_ROLE_LABELS = {"LIBERAL": "🔵 Liberal", "FASCIST": "😈 Fascist", "HITLER": "👑 Hitler"}
+STATS_ERRORS = {
+    "NO_ACCESS": "Статистика доступна только участникам этого клуба.",
+    "NOT_FOUND": "Игрок или игровой вечер больше не доступен.",
+    "NO_PLAYER": "Ваш Telegram ещё не связан с игроком клуба. Сначала создайте или привяжите игрока.",
+    "INVALID_PAGE": "Эта кнопка больше не актуальна.",
+    "INVALID_BOARD": "Эта кнопка больше не актуальна.",
+}
+STATS_NO_GAMES = "Пока нет сыгранных партий."
+STATS_NO_SESSIONS = "Пока нет игровых вечеров."
+STATS_NO_PLAYERS = "Пока нет игроков."
+STATS_VICTORY_LABELS = {
+    "LIBERAL_POLICIES": "5 либеральных законов", "HITLER_KILLED": "Hitler убит",
+    "FASCIST_POLICIES": "6 фашистских законов", "HITLER_CHANCELLOR": "Hitler избран канцлером",
+    "UNKNOWN": "Причина победы неизвестна",
+}
+
+
+def stats_percent(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def stats_eligibility(info) -> str:
+    return "" if info.eligible else f"\nНедостаточно игр: {info.games}/{info.required_games}"
+
+
+def stats_event_lines(counts) -> str:
+    return "\n".join(f"{EVENT_TYPE_LABELS[k.value]}: {count}" for k, count in counts.items())
+
+
+def stats_player_card(player) -> str:
+    text = (f"👤 {player.display_name}\n\n🎲 Игр: {player.total_games}\n🏆 Побед: {player.total_wins}"
+            f"\n📈 Winrate: {stats_percent(player.overall_winrate)}{stats_eligibility(player.overall_eligibility)}")
+    for role, score in player.roles.items():
+        text += (f"\n\n{STATS_ROLE_LABELS[role.value]}\n{score.games} игр / {score.wins} побед / "
+                 f"{stats_percent(score.winrate)}{stats_eligibility(player.role_eligibility[role])}")
+    text += (f"\n\n💥 Руины: {player.ruin_events} событий\n🎲 Игры с Руиной: {player.games_with_ruin}"
+             f"\n💣 Ruin rate: {stats_percent(player.ruin_rate)}\n🙋 Сам признал: {player.self_admitted_ruins}"
+             f"\n🎭 Палево: {player.palivo_count}\n🧠 200 IQ: {player.iq_200_count}\n🔮 Пророк: {player.prophet_count}")
+    reasons = [f"{RUIN_REASON_LABELS[reason.value]}: {count}" for reason, count in player.ruin_reasons.items() if count]
+    if reasons:
+        text += "\n\nПричины Руины:\n" + "\n".join(reasons)
+    return text
+
+
+def stats_player_line(player) -> str:
+    return f"{player.display_name} — {player.total_games} игр / {player.total_wins} побед / {stats_percent(player.overall_winrate)}"
+
+
+def stats_players(page, *, moments: bool = False) -> str:
+    heading = STATS_SECTIONS["moments" if moments else "players"]
+    lines = []
+    for player in page.items:
+        if moments:
+            lines.append(f"{player.display_name} — 💥 {player.ruin_events} · 🎭 {player.palivo_count} · 🧠 {player.iq_200_count} · 🔮 {player.prophet_count}")
+        else:
+            lines.append(stats_player_line(player))
+    return heading + "\n\n" + ("\n".join(lines) or STATS_NO_PLAYERS)
+
+
+def stats_role_players(page, role_code: str) -> str:
+    lines = []
+    for player in page.items:
+        score = next(s for role, s in player.roles.items() if role.value == role_code)
+        lines.append(f"{player.display_name} — {score.games} игр / {score.wins} побед / {stats_percent(score.winrate)}")
+    return STATS_ROLE_LABELS[role_code] + "\n\n" + ("\n".join(lines) or STATS_NO_PLAYERS)
+
+
+def stats_ruin_players(page) -> str:
+    lines = [f"{p.display_name} — {stats_percent(p.ruin_rate)} · {p.games_with_ruin}/{p.total_games} игр · {p.ruin_events} событий"
+             for p in page.items]
+    return STATS_SECTIONS["ruin"] + "\n\n" + ("\n".join(lines) or STATS_NO_PLAYERS)
+
+
+def stats_team_lines(score) -> str:
+    text = (f"🎲 Партий: {score.games_count}\n🔵 Liberals: {score.liberal_wins} — {stats_percent(score.liberal_winrate)}"
+            f"\n🔴 Fascists: {score.fascist_wins} — {stats_percent(score.fascist_winrate)}")
+    return text if score.games_count else text + "\n" + STATS_NO_GAMES
+
+
+def stats_session_card(stats, date: str) -> str:
+    lines = "\n".join(stats_player_line(player) for player in stats.players.items)
+    return (f"🍻 Итоги вечера · {date}\n\n{stats_team_lines(stats.score)}\n\n"
+            f"{stats_event_lines(stats.event_counts)}\n\n{lines or STATS_NO_PLAYERS}")
+
+
+def stats_club_card(stats) -> str:
+    text = (f"🌍 {stats.club_name}\n🍻 Вечеров: {stats.total_sessions}\n\n{stats_team_lines(stats.score)}"
+            f"\n\n{stats_event_lines(stats.event_counts)}\n\nПричины победы:\n")
+    text += "\n".join(f"{STATS_VICTORY_LABELS[k.value]}: {v}" for k, v in stats.victory_types.items())
+    text += "\n\nПартии по числу игроков:\n" + "\n".join(
+        f"👥 {size}: {s.games_count} игр · 🔵 {s.liberal_wins} ({stats_percent(s.liberal_winrate)}) · 🔴 {s.fascist_wins} ({stats_percent(s.fascist_winrate)})"
+        for size, s in stats.games_by_player_count.items())
+    return text
+
+
+def stats_leaderboard(board) -> str:
+    text = f"{STATS_BOARD_LABELS[board.kind.value]}\nМинимум игр: {board.required_games}\n\n"
+    if not board.entries.items:
+        return text + f"Пока никто не набрал минимум {board.required_games} игр для этого рейтинга."
+    role_codes = {"liberal": "LIBERAL", "fascist": "FASCIST", "hitler": "HITLER"}
+    lines = []
+    for index, player in enumerate(board.entries.items, board.entries.page * 10 + 1):
+        if board.kind.value == "ruin":
+            result = f"{stats_percent(player.ruin_rate)} · {player.games_with_ruin}/{player.total_games} игр · {player.ruin_events} событий"
+        elif board.kind.value == "iq":
+            result = f"{player.iq_200_count} событий · {player.total_games} игр"
+        elif board.kind.value in role_codes:
+            score = next(s for r, s in player.roles.items() if r.value == role_codes[board.kind.value])
+            result = f"{stats_percent(score.winrate)} · {score.wins}/{score.games} побед"
+        else:
+            result = f"{stats_percent(player.overall_winrate)} · {player.total_wins}/{player.total_games} побед"
+        lines.append(f"{index}. {player.display_name} — {result}")
+    return text + "\n".join(lines)

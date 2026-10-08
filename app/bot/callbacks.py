@@ -120,3 +120,18 @@ class EventAfter(CallbackData, prefix="ef"):
     flow: str
     event_id: UUID
     action: str
+
+
+class StatsPage(CallbackData, prefix="stat"):
+    club_id: UUID
+    section: str
+    page: int = 0
+
+
+class StatsPlayer(CallbackData, prefix="statp"):
+    player_id: UUID
+
+
+class StatsSession(CallbackData, prefix="stats"):
+    session_id: UUID
+    page: int = 0
