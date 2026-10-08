@@ -21,6 +21,7 @@ from aiogram.types import CallbackQuery, Chat, Message, User
 
 from app.db.models import Club, ClubMembership, Game, GamePlayer, GameSession, Player, SessionParticipant, TelegramUser
 from app.domain.enums import GameRole, MembershipRole, MembershipStatus, SessionStatus, Team, VictoryType
+from app.domain.roles import get_role_distribution
 from app.services.games import GameError, GameErrorCode, GameService
 from app.services.sessions import SessionService
 from app.bot.callbacks import GameAction, GameChoice, GamePick, GameSave
@@ -87,7 +88,7 @@ async def games(test_database_url):
 def save(service, evening, players, *, telegram_id=8801, draft=None,
          winner=Team.LIBERAL, victory=VictoryType.HITLER_KILLED):
     participants = tuple(players)
-    fascist_count = 1 if len(participants) in (5, 6) else 2 if len(participants) in (7, 8) else 3
+    fascist_count = get_role_distribution(len(participants)).fascists
     return service.create_game(telegram_id, evening, draft or uuid.uuid4(), participants,
                                participants[0], participants[1:1 + fascist_count], winner, victory)
 
@@ -140,10 +141,22 @@ async def test_duplicate_players_roles_and_victory_rejected(games):
          VictoryType.HITLER_KILLED, GameErrorCode.INVALID_ROLES),
         (players[:5], players[0], (players[1], players[2]), Team.LIBERAL,
          VictoryType.HITLER_KILLED, GameErrorCode.INVALID_ROLES),
+        (players[:8], players[0], (players[1], players[1]), Team.LIBERAL,
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_ROLES),
+        (players[:8], players[0], (players[1],), Team.LIBERAL,
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_ROLES),
+        (players[:5], players[5], (players[1],), Team.LIBERAL,
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_PARTICIPANTS),
+        (players[:4], players[0], (players[1],), Team.LIBERAL,
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_PARTICIPANTS),
+        (players + (players[0],), players[0], (players[1],), Team.LIBERAL,
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_PARTICIPANTS),
         (players[:5], players[0], (players[1],), Team.FASCIST,
          VictoryType.HITLER_KILLED, GameErrorCode.INVALID_VICTORY),
         (players[:5], players[0], (players[1],), Team.LIBERAL,
          VictoryType.UNKNOWN, GameErrorCode.INVALID_VICTORY),
+        (players[:5], players[0], (players[1],), "INVALID",  # type: ignore[arg-type]
+         VictoryType.HITLER_KILLED, GameErrorCode.INVALID_VICTORY),
     ]
     for participants, hitler, fascists, winner, victory, expected in cases:
         with pytest.raises(GameError) as error:
@@ -210,6 +223,8 @@ async def test_double_save_and_roster_snapshot(games):
     saved = await service.game(8802, first.id)
     assert {p.id for p in saved.participants} == set(players[:8])
     assert saved.hitler.id == players[0]
+    assert {p.id for p in saved.fascists} == set(players[1:3])
+    assert {p.id for p in saved.liberals} == set(players[3:8])
     assert (await sessions.view(8801, evening)).game_count == 1
     async with factory() as db:
         assert await db.scalar(select(func.count(Game.id))) == 1
@@ -251,8 +266,9 @@ async def test_concurrent_saves_allocate_distinct_sequence_numbers(test_database
 
 
 @pytest.mark.asyncio
-async def test_eight_player_telegram_wizard_saves_only_on_final_tap(games, monkeypatch):
-    service, _, factory, _, evening, players = games
+@pytest.mark.parametrize("count", [5, 6, 7, 8, 9, 10])
+async def test_telegram_wizard_saves_only_on_final_tap(games, monkeypatch, count):
+    service, sessions, factory, _, evening, players = games
     storage = MemoryStorage()
     state = FSMContext(storage, StorageKey(bot_id=1, chat_id=8801, user_id=8801))
     answer = AsyncMock()
@@ -264,7 +280,7 @@ async def test_eight_player_telegram_wizard_saves_only_on_final_tap(games, monke
     callback = CallbackQuery(id="test", from_user=message.from_user,
                              chat_instance="test", message=message, data="unused")
     async with factory() as db, db.begin():
-        for pid in players[8:]:
+        for pid in players[count:]:
             interval = await db.scalar(select(SessionParticipant).where(
                 SessionParticipant.session_id == evening, SessionParticipant.player_id == pid))
             interval.is_present = False
@@ -272,33 +288,36 @@ async def test_eight_player_telegram_wizard_saves_only_on_final_tap(games, monke
     await begin_wizard(callback, state, service, evening)
     assert (await state.get_data())["stage"] == "hitler"
     assert "Кто был Hitler" in answer.await_args.args[0]
-    await pick(callback, GamePick(step="hitler", player_id=players[0]), state)
-    assert "0/2" in answer.await_args.args[0]
-    await pick(callback, GamePick(step="fascists", player_id=players[1]), state)
-    await pick(callback, GamePick(step="fascists", player_id=players[2]), state)
-    await action(callback, GameAction(action="fascists_done"), state)
-    await choice(callback, GameChoice(kind="winner", code="L"), state)
-    await choice(callback, GameChoice(kind="victory", code="HK"), state)
+    await pick(callback, GamePick(flow=(await state.get_data())["flow"], step="h", player_id=players[0]), state)
+    required = get_role_distribution(count).fascists
+    assert f"0/{required}" in answer.await_args.args[0]
+    for pid in players[1:1 + required]:
+        await pick(callback, GamePick(flow=(await state.get_data())["flow"], step="f", player_id=pid), state)
+    await action(callback, GameAction(flow=(await state.get_data())["flow"], action="fascists_done"), state, sessions)
+    await choice(callback, GameChoice(flow=(await state.get_data())["flow"], kind="winner", code="L"), state)
+    await choice(callback, GameChoice(flow=(await state.get_data())["flow"], kind="victory", code="HK"), state)
     assert "Liberals:" in answer.await_args.args[0]
     assert "Сохранить" in str(answer.await_args.kwargs["reply_markup"])
     async with factory() as db:
         assert await db.scalar(select(func.count(Game.id))) == 0
     draft = uuid.UUID((await state.get_data())["draft_id"])
-    await save_callback(callback, GameSave(draft_id=draft), state, service)
+    save_button = GameSave(flow=(await state.get_data())["flow"], draft_id=draft)
+    await save_callback(callback, save_button, state, service)
     assert "Игра #1 сохранена" in answer.await_args.args[0]
-    await save_callback(callback, GameSave(draft_id=draft), state, service)
+    await save_callback(callback, save_button, state, service)
     async with factory() as db:
         assert await db.scalar(select(func.count(Game.id))) == 1
     await begin_wizard(callback, state, service, evening)
     new_draft = (await state.get_data())["draft_id"]
-    await save_callback(callback, GameSave(draft_id=draft), state, service)
+    await save_callback(callback, save_button, state, service)
     assert (await state.get_data())["draft_id"] == new_draft
+    assert answer.await_args.args[0] == ru.GAME_ERRORS["STALE"]
     await storage.close()
 
 
 @pytest.mark.asyncio
 async def test_more_than_ten_present_forces_participant_selection(games, monkeypatch):
-    service, _, factory, club, evening, _ = games
+    service, sessions, factory, club, evening, _ = games
     async with factory() as db, db.begin():
         extra = Player(club_id=club, display_name="Player 11")
         away = Player(club_id=club, display_name="Away")
@@ -319,12 +338,12 @@ async def test_more_than_ten_present_forces_participant_selection(games, monkeyp
     assert away.id not in {p.id for p in (await service.setup(8801, evening)).candidates}
     assert (await state.get_data())["stage"] == "participants"
     assert (await state.get_data())["participants"] == []
-    await action(callback, GameAction(action="participants_done"), state)
+    await action(callback, GameAction(flow=(await state.get_data())["flow"], action="participants_done"), state, sessions)
     assert (await state.get_data())["stage"] == "participants"
     assert answer.await_args.args[0] == ru.GAME_ERRORS[GameErrorCode.INVALID_PARTICIPANTS.value]
     for pid in (await service.setup(8801, evening)).candidates[:5]:
-        await pick(callback, GamePick(step="participants", player_id=pid.id), state)
-    await action(callback, GameAction(action="participants_done"), state)
+        await pick(callback, GamePick(flow=(await state.get_data())["flow"], step="p", player_id=pid.id), state)
+    await action(callback, GameAction(flow=(await state.get_data())["flow"], action="participants_done"), state, sessions)
     assert (await state.get_data())["stage"] == "hitler"
     assert len((await state.get_data())["participants"]) == 5
     await storage.close()

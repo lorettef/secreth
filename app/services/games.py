@@ -27,6 +27,7 @@ class GameErrorCode(StrEnum):
     INVALID_ROLES = "INVALID_ROLES"
     INVALID_VICTORY = "INVALID_VICTORY"
     DRAFT_CONFLICT = "DRAFT_CONFLICT"
+    STALE = "STALE"
 
 
 class GameError(ValueError):

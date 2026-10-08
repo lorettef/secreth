@@ -57,24 +57,31 @@ class RecoveryAction(CallbackData, prefix="rec"):
     action: str
 
 
-class GameAction(CallbackData, prefix="ga"):
+class GameAction(CallbackData, prefix="ga2"):
+    flow: str
     action: str
 
 
-class GamePick(CallbackData, prefix="gp"):
+class GamePick(CallbackData, prefix="gp2"):
+    flow: str
+    # p/h/f keep UUID-bearing callbacks below Telegram's 64-byte limit.
     step: str
     player_id: UUID
 
 
-class GameChoice(CallbackData, prefix="gc"):
+class GameChoice(CallbackData, prefix="gc2"):
+    flow: str
     kind: str
     code: str
 
 
-class GameSave(CallbackData, prefix="gs"):
+class GameSave(CallbackData, prefix="gs2"):
+    flow: str
     draft_id: UUID
 
 
-class GameAfter(CallbackData, prefix="gafter"):
+class GameAfter(CallbackData, prefix="gf2"):
+    flow: str
     game_id: UUID
+    # m/n/h/s/c: moment/next/home/same/changed.
     action: str

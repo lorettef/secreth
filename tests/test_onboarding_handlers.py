@@ -152,9 +152,10 @@ def test_callback_payloads_fit_telegram_limit() -> None:
     assert len(ReviewLink(request_id=identifier, action="approve").pack().encode()) <= 64
     assert len(SessionAction(session_id=identifier, action="transfer").pack().encode()) <= 64
     assert len(SessionStart(club_id=identifier).pack().encode()) <= 64
-    assert len(GamePick(step="participants", player_id=identifier).pack().encode()) <= 64
-    assert len(GameSave(draft_id=identifier).pack().encode()) <= 64
-    assert len(GameAfter(game_id=identifier, action="changed").pack().encode()) <= 64
+    flow = "x" * 16
+    assert len(GamePick(flow=flow, step="p", player_id=identifier).pack().encode()) <= 64
+    assert len(GameSave(flow=flow, draft_id=identifier).pack().encode()) <= 64
+    assert len(GameAfter(flow=flow, game_id=identifier, action="c").pack().encode()) <= 64
 
 
 @pytest.mark.asyncio
