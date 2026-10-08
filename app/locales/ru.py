@@ -438,3 +438,6 @@ def history_edit_preview(data) -> str:
     return (f"👥 {participants}\n👑 Hitler: {names.get(data.get('hitler'), '—')}\n😈 Fascists: "
             + ", ".join(names.get(pid, "—") for pid in data["fascists"])
             + f"\n🏆 {data['winner']}\n📜 {STATS_VICTORY_LABELS.get(data.get('victory'), '—')}")
+
+EXPORT_BUTTON = "📤 Экспорт"
+EXPORT_READY = "Экспорт клуба готов. XLSX содержит историю; технический backup создаётся отдельно через pg_dump."

@@ -16,7 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Chat, ForceReply, InlineKeyboardMarkup, Message, Update, User
 
 from app.bot.callbacks import EventAction, EventAfter, EventChoice, EventPick, EventSave, EventStart, GameAfter, GameCard
-from app.bot.handlers.events import EventFlow, action, after, begin_event, choose, comment, game_card, pick_player, save, start_event
+from app.bot.handlers.events import EventFlow, action, after, choose, comment, game_card, pick_player, save, start_event
 from app.bot.handlers.games import after as game_after
 from app.bot.keyboards import events as keyboards
 from app.domain.enums import EventType, RuinReason, SessionStatus, Team, VictoryType
@@ -194,7 +194,7 @@ async def test_cancel_returns_game_and_clears_draft(flow):
 @pytest.mark.asyncio
 async def test_comment_is_bound_to_current_prompt_and_safe_plain_text(flow):
     state, callback, answer, _, _, _ = flow
-    old = await draft(state, "comment", EventType.IQ_200)
+    await draft(state, "comment", EventType.IQ_200)
     prompt = callback.message.model_copy(update={"message_id": 123})
     text = '<b>Name</b> & [link](https://example.com)'
     message = callback.message.model_copy(update={"text": text, "reply_to_message": prompt})

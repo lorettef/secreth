@@ -11,14 +11,14 @@ from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models import AuditLog, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player
-from app.domain.enums import EventType, GameRole, GameStatus, MembershipRole, SessionStatus, Team, VictoryType
+from app.domain.enums import EventType, GameRole, GameStatus, SessionStatus, Team, VictoryType
 from app.services.events import EventError, EventService
-from app.services.games import GameError, GamePerson, GameService
+from app.services.games import GameError, GameService
 from app.services.history import HistoryService
 from app.services.sessions import SessionError, SessionService
 from app.services.stats import StatsService
 from app.locales import ru
-from test_games_integration import seed, test_database_url
+from test_games_integration import seed, test_database_url  # noqa: F401
 
 
 @dataclass

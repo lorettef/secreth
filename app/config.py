@@ -1,6 +1,7 @@
 """Environment-backed application settings."""
 
 import logging
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +16,16 @@ class Settings(BaseSettings):
     bot_token: str = Field(min_length=1, repr=False)
     database_url: str = Field(repr=False)
     log_level: str = "INFO"
+    default_timezone: str = "UTC"
+
+    @field_validator("default_timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("DEFAULT_TIMEZONE must be an IANA timezone") from exc
+        return value
 
     @field_validator("database_url")
     @classmethod

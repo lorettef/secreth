@@ -5,7 +5,6 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import SimpleEventIsolation
-from sqlalchemy import text
 
 from app.bot.handlers.start import router as start_router
 from app.bot.handlers.membership import router as membership_router
@@ -15,6 +14,10 @@ from app.bot.handlers.games import router as games_router
 from app.bot.handlers.events import router as events_router
 from app.bot.handlers.stats import router as stats_router
 from app.bot.handlers.history import router as history_router
+from app.bot.handlers.exports import router as exports_router
+from app.bot.handlers.errors import unexpected_error
+from app.services.spreadsheets import ExportService
+from app.operations import configure_logging, check_database
 from app.config import Settings
 from app.db.session import create_engine, create_session_factory
 from app.services.membership import MembershipService
@@ -29,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 def create_dispatcher() -> Dispatcher:
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
+    dispatcher.errors.register(unexpected_error)
+    dispatcher.include_router(exports_router)
     dispatcher.include_router(start_router)
     dispatcher.include_router(stats_router)
     dispatcher.include_router(history_router)
@@ -42,10 +47,8 @@ def create_dispatcher() -> Dispatcher:
 
 async def main() -> None:
     settings = Settings()
-    logging.basicConfig(
-        level=settings.log_level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging(settings)
+    logger.info("Application starting")
 
     engine = create_engine(settings.database_url)
     session_factory = create_session_factory(engine)
@@ -56,8 +59,7 @@ async def main() -> None:
     stats_service = StatsService(session_factory)
     history_service = HistoryService(session_factory)
     try:
-        async with session_factory() as session:
-            await session.execute(text("SELECT 1"))
+        await check_database(engine)
         logger.info("Database connection ready")
 
         async with Bot(token=settings.bot_token) as bot:
@@ -68,11 +70,25 @@ async def main() -> None:
                 event_service=event_service,
                 stats_service=stats_service,
                 history_service=history_service,
+                export_service=ExportService(engine),
             )
+    except Exception:
+        logger.exception("Application startup/polling failed")
+        raise
     finally:
         await engine.dispose()
         logger.info("Application stopped")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from pydantic import ValidationError
+    import sys
+    try:
+        asyncio.run(main())
+    except ValidationError as error:
+        # Settings hides input values; startup errors must not dump raw config.
+        sys.stderr.write(f"Invalid configuration: {error}\n")
+        raise SystemExit(1) from None
+    except Exception:
+        # Details were logged with redaction inside main().
+        raise SystemExit(1) from None

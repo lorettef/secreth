@@ -56,7 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create the first club and administrator")
     parser.add_argument("--telegram-id", type=int, required=True)
     parser.add_argument("--club", required=True)
-    parser.add_argument("--timezone", default="UTC")
+    parser.add_argument("--timezone")
     parser.add_argument("--player", required=True, help="Administrator's player display name")
     arguments = parser.parse_args()
     settings = Settings()
@@ -66,7 +66,7 @@ def main() -> None:
                 settings.database_url,
                 telegram_id=arguments.telegram_id,
                 club_name=arguments.club,
-                timezone_name=arguments.timezone,
+                timezone_name=arguments.timezone or settings.default_timezone,
                 display_name=arguments.player,
             )
         )

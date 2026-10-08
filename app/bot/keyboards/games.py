@@ -5,7 +5,7 @@ from uuid import UUID
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.bot.callbacks import GameAction, GameAfter, GameChoice, GamePick, GameSave
-from app.domain.enums import Team, VictoryType
+from app.domain.enums import Team
 from app.services.games import GamePerson, GameResult
 
 

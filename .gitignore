@@ -7,3 +7,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+backups/
+*.dump
+*.xlsx
+*.tmp
+.ruff_cache/

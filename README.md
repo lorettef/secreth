@@ -1,146 +1,227 @@
 # Secret Hitler Stats
 
-Telegram-бот для учёта партий Secret Hitler. Доступны вступление в клуб по приглашению, привязка игрока к Telegram, игровые вечера и запись завершённых партий.
+## Что это
 
-## Требования
+Небольшой Telegram-бот для регулярных вечеров Secret Hitler: быстро записывает завершённые партии и вычисляет статистику по сохранённой истории. Продуктовые требования — [docs/SPEC.md](docs/SPEC.md), правила разработки — [AGENTS.md](AGENTS.md).
 
-- Docker с Compose plugin
-- Токен бота от BotFather
+## Основные возможности
 
-## Запуск через Docker Compose
+- Вступление по invite, historical Players без Telegram, linking с ADMIN approval.
+- Игровые вечера, live roster с уходом/возвращением, statistician transfer и emergency recovery.
+- Game wizard: участники → Hitler → Fascists → automatic Liberals → winner → victory → review → save. Snapshot состава независим от roster; повторный Save защищён `draft_id` в PostgreSQL.
+- Ровно четыре Events: RUIN, PALIVO, IQ_200, PROPHET. RUIN имеет семь причин и self_admitted; comment optional, до 500 символов. Несколько одинаковых событий допустимы.
+- Player/role/session/club statistics и шесть leaderboards: общий winrate, Liberal, Fascist, Hitler, Руины, 200 IQ. Общие/event thresholds — 10 игр, role threshold — 5; значения задаются в Club. **Ruin rate = games with at least one ruin / total games × 100%**, а не число событий / игр.
+- History по вечерам, последним Games и Player; pagination 10/page, Game Cards с ролями и Events.
+- ADMIN historical corrections, VOID/RESTORE, Player rename/deactivate/reactivate, AuditLog.
+- ADMIN XLSX export, normalized legacy import CLI, PostgreSQL backup/restore tools.
 
-1. Скопируйте `.env.example` в `.env`.
-2. Заполните `BOT_TOKEN` и задайте свой `POSTGRES_PASSWORD`.
-3. В `DATABASE_URL` укажите тот же пароль; хост `db` нужен для запуска в Compose.
-4. Запустите PostgreSQL, примените миграции и создайте первого администратора:
+PLAYER читает данные и может начать вечер. STATISTICIAN управляет только своим ACTIVE вечером; после завершения/передачи теряет edit rights. ADMIN исправляет историю своего клуба, удаляет Events, делает VOID/RESTORE и управляет Players. Backend повторно проверяет права/club scope.
+
+Game edits работают как draft и сохраняются одной транзакцией. Участника с Events нельзя удалить из Game до переназначения/удаления этих Events. Game никогда не удаляется физически: VOID исключает её и события из stats, RESTORE возвращает. Номера Games не переиспользуются. Inactive Player сохраняет историю, но исключён из нового roster и leaderboards. Stats вычисляются SQL, без ручных counters/cache.
+
+Mutation buttons связаны с entity revision и FSM screen token; старые Back/Cancel/Save/confirmation не изменяют новый flow. Audit actions: PLAYER_LINK, PLAYER_EDIT, STATISTICIAN_CHANGE, GAME_EDIT, GAME_VOID, GAME_RESTORE, EVENT_CREATE, EVENT_EDIT, EVENT_DELETE, IMPORT. Исторический STATISTICIAN_TRANSFER сохранён и читается как прежний код. Просмотр не создаёт AuditLog.
+
+## Архитектура
+
+Python 3.12+, aiogram 3, SQLAlchemy async/asyncpg, PostgreSQL 16, Alembic, pydantic-settings, openpyxl. Handlers разбирают Telegram input; domain содержит правила ролей/победы/событий/permissions; services координируют транзакции, queries и audit. GamePlayer — snapshot конкретной партии. Player и TelegramUser — разные сущности. FSM — MemoryStorage + SimpleEventIsolation.
+
+## Requirements
+
+- Python 3.12+ для local setup либо Docker Engine/Desktop с Compose plugin.
+- PostgreSQL 16; client tools `pg_dump`/`pg_restore` версии 16 для backup/restore (в Docker image включены).
+- Реальный BOT_TOKEN от BotFather для long polling; доступ к Telegram API.
+- Для полного pytest: отдельная disposable PostgreSQL 16 database, test role с правом CREATE DATABASE, PostgreSQL client tools в PATH. Нельзя использовать dev/production БД.
+
+## Environment
+
+```bash
+cp .env.example .env
+```
+
+Заполните BOT_TOKEN, DATABASE_URL, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD; замените `change-me`. DATABASE_URL имеет driver `postgresql+asyncpg` и тот же password, что PostgreSQL. В Compose hostname `db`, локально — адрес вашего сервера. Пароль со специальными символами нужно URL-encode. LOG_LEVEL default INFO. DEFAULT_TIMEZONE — валидный IANA timezone (default UTC), используется при bootstrap; каждый Club хранит свой timezone.
+
+`.env` ignored Git/Docker. Не печатайте config или URLs с credentials. Production logs редактируют token, URL и DB password; SQLAlchemy не включает query parameters в errors. Alembic требует DATABASE_URL **в environment**; самостоятельно `.env` он не читает. Далее команды экспорта переменных исполняйте только с доверенным локальным `.env`.
+
+## Local setup
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.lock
+.venv/bin/pip install --no-deps -e .
+.venv/bin/pip install -e '.[test]'
+```
+
+`requirements.lock` фиксирует production/transitive версии, использованные при проверке. Runtime dependencies не обновляются автоматически в Docker. При намеренном обновлении пересоберите lock и прогоните полный suite.
+
+Settings/import/backup tools читают `.env`. Для Alembic можно загрузить DATABASE_URL через dotenv без вывода secrets:
+
+```bash
+.venv/bin/python -c 'from dotenv import load_dotenv; load_dotenv(); from alembic.config import Config; from alembic import command; command.upgrade(Config("alembic.ini"), "head")'
+```
+
+## Docker setup
+
+Compose services называются **db** (PostgreSQL) и **app** (bot). Named volume `postgres_data` сохраняет данные; db healthcheck — pg_isready. Оба services имеют restart unless-stopped. Bot image работает от unprivileged user, без dev dependencies/.git/.env/backups.
 
 ```bash
 docker compose up -d db
 docker compose build app
 docker compose run --rm app alembic upgrade head
-docker compose run --rm app python -m app.bootstrap_admin \
-  --telegram-id 123456789 --club "Название клуба" \
-  --timezone "Asia/Yakutsk" --player "Имя администратора"
-```
-
-Замените `123456789` реальным Telegram ID администратора. Bootstrap разрешён только пока в базе нет ни одного клуба. Повторный запуск не создаст второй клуб или второго администратора.
-
-5. Запустите бота:
-
-```bash
-docker compose up --build -d
+# Затем создайте первого ADMIN по следующему разделу.
+docker compose up -d app
 docker compose logs -f app
 ```
 
-При запуске бот проверяет PostgreSQL, затем начинает long polling. Администратор открывает `/start`, нажимает «Управление клубом» → «Создать приглашение» и отправляет ссылку игроку. Игрок открывает ссылку, вступает в клуб и выбирает «Я новый игрок» либо исторического игрока без Telegram-привязки. Привязку исторического игрока администратор подтверждает в «Заявках на привязку».
+Остановить без удаления данных: `docker compose down`. **`docker compose down -v` УДАЛЯЕТ PostgreSQL volume**: не используйте для обычной остановки или обновления.
 
-Остановить сервисы без удаления данных:
+Без настоящего token bot не запускает полноценный polling. Fake production режим отсутствует. Schema/config можно проверить через migration/bootstrap команды без обращения к Telegram; настоящий bot smoke выполняется человеком.
 
-```bash
-docker compose down
-```
+## Database migrations
 
-## Миграции
-
-Цепочка миграций:
-
-- `0001_initial_models` — основные таблицы и ограничения;
-- `0002_player_link_requests` — заявки на привязку исторических игроков;
-- `0003_game_draft_id` — ключ защиты от повторного сохранения партии;
-- `0004_statistician_recovery` — заявки аварийной смены статиста и подтверждения.
-
-Применить их:
+- 0001_initial_models — основная schema/constraints.
+- 0002_player_link_requests — ADMIN approval linking.
+- 0003_game_draft_id — duplicate Save protection.
+- 0004_statistician_recovery — persistent emergency requests/confirmations; текущая единственная head.
 
 ```bash
+docker compose run --rm app alembic current
+docker compose run --rm app alembic heads
+docker compose run --rm app alembic check
 docker compose run --rm app alembic upgrade head
 ```
 
-Для локального Alembic задайте `DATABASE_URL` в окружении процесса. Команды `alembic downgrade base` и повторный `alembic upgrade head` проверяйте только на отдельной тестовой базе: downgrade удаляет таблицы.
+Startup сверяет Alembic revision с head и отказывается запускаться при missing/outdated schema. Migrations выполняет оператор: bot не делает auto migration. `downgrade base` удаляет tables, поэтому полный cycle проверяйте только на disposable test DB.
 
-## Игровые вечера
+## First ADMIN
 
-Любой активный игрок с привязанным Telegram может начать вечер, если в клубе нет другого активного вечера. Создатель становится статистом и выбирает присутствующих. Вечер можно создать с составом меньше пяти человек; запись партии доступна начиная с пяти.
-
-Статист и ADMIN могут записывать партии, добавлять пришедших, отмечать ушедших и завершать вечер. Возвращение игрока создаёт новый интервал присутствия. Изменение состава не меняет участников уже сохранённых партий. Остальные игроки видят текущий состав, количество партий и командный счёт.
-
-«Передать ведение» позволяет выбрать другого зарегистрированного активного игрока клуба; присутствующие показываются первыми. После подтверждения прежний статист теряет права управления, если он не ADMIN. Завершение вечера также требует подтверждения. Кнопки выбора, подтверждения, отмены и навигации привязаны к текущему экрану: устаревшая кнопка не меняет новый сценарий.
-
-### Если статист недоступен
-
-Внутри текущего вечера откройте «⚙️ Помощь» → «⚙️ Проблема со статистом / Сменить статиста». Аварийную смену может инициировать активный присутствующий участник; ADMIN может сделать это и без присутствия.
-
-Кандидат должен быть активным зарегистрированным игроком этого клуба, присутствовать на вечере и отличаться от текущего статиста. После выбора и подтверждения бот выдаёт ссылку: передайте её двум другим присутствующим участникам. Каждый открывает ссылку и явно подтверждает смену. Инициатор и кандидат не голосуют; повторное нажатие не добавляет голос. После двух валидных подтверждений ведение передаётся кандидату. ADMIN выполняет аварийную смену сразу, без голосов.
-
-Заявки и подтверждения сохраняются в PostgreSQL и доступны после перезапуска бота по той же ссылке. Голос ушедшего, заблокированного или деактивированного игрока не учитывается. Уход и возвращение кандидата делают прежнюю заявку недействительной. Обычная смена статиста, другая успешная аварийная смена или завершение вечера аннулируют ожидающие заявки.
-
-Новые смены записываются в AuditLog с action `STATISTICIAN_CHANGE`. Старые записи `STATISTICIAN_TRANSFER` сохраняются без переписывания; будущие читатели исторического журнала должны учитывать оба кода.
-
-## Запись партий
-
-Статист или ADMIN открывает текущий вечер и нажимает «Записать игру». При 5–10 присутствующих текущий состав выбран автоматически, и его можно изменить. Если присутствующих больше десяти, нужно выбрать 5–10 участников конкретной партии; при составе меньше пяти запись недоступна.
-
-Далее выбираются Hitler, нужное количество обычных Fascists, победившая команда и способ победы. Liberals определяются автоматически. Экран проверки показывает состав, роли и результат; только «Сохранить» создаёт официальную Game вместе со snapshot участников и ролей в одной транзакции. «Назад» позволяет исправить ввод, а «Отменить» очищает черновик и возвращает к вечеру.
-
-Черновик хранится в FSM и может быть потерян при перезапуске. Все кнопки мастера привязаны к текущему экрану: старый выбор, Back, Cancel или Save не меняют новый черновик. Повторное сохранение защищено уникальным `draft_id` в PostgreSQL; одновременные записи получают разные номера внутри вечера.
-
-После сохранения можно добавить необязательный момент, вернуться к вечеру или начать следующую партию: бот спрашивает, остался ли состав прежним.
-
-## Игровые моменты
-
-«✨ Добавить момент» после сохранения или из карточки партии запускает мастер: тип → участник именно этой партии → дополнительные поля → комментарий → проверка → сохранение. Текущий состав вечера не меняет список участников прошлой партии. После сохранения доступны «Добавить ещё», «К игре» и «К вечеру».
-
-Поддерживаются ровно четыре типа: **💥 Руина**, **🎭 Палево**, **🧠 200 IQ**, **🔮 Пророк**. Руина — существенная ошибка игрока, независимо от победителя партии. Причины: неправильное голосование, спалил / неправильно отыграл роль, неправильный выбор канцлера, неправильное убийство, лишняя информация, тактическая ошибка, другое. Для Руины можно отметить «Сам признал»; у остальных типов этот флаг всегда выключен.
-
-Комментарий необязателен, до 500 символов. Отправляйте его ответом на актуальный запрос бота либо нажмите «Пропустить». Текст отображается без обработки HTML/Markdown. Старые кнопки и ответы на старый запрос не меняют новый черновик. Повторный Save создаёт одно событие; отдельный новый ввод позволяет добавить несколько одинаковых моментов одному игроку.
-
-Текущий статист может добавлять и исправлять события своей ACTIVE session. ADMIN может работать с историческими партиями своего клуба. Service API предоставляет список, создание, редактирование и ADMIN-удаление события. Изменения и удаления записываются как `EVENT_EDIT` / `EVENT_DELETE`, ADMIN-создание — `EVENT_CREATE`. Эти операции также доступны из карточки события в истории. События используют существующую модель GameEvent; новых миграций не требуется.
-
-## Статистика и рейтинги
-
-Участникам клуба доступны «👤 Моя статистика», «📊 Статистика» и «🏆 Рейтинги». Карточка игрока показывает игры, победы, общий winrate и отдельные результаты Liberal, Fascist и Hitler. Hitler побеждает вместе с Fascists. Игроки без Telegram-привязки учитываются наравне с остальными. При отсутствии игр проценты показываются как `0.0%`.
-
-RUIN statistics различают число событий и число уникальных игр с Руиной. **Ruin rate = games with at least one ruin / total games × 100%**. Две Руины в одной партии дают два события, но одну игру с Руиной. Карточка также показывает причины Руин, «Сам признал», PALIVO, IQ_200 и PROPHET.
-
-«📊 Статистика вечера» доступна всем участникам клуба: результаты команд, моменты и показатели игроков считаются по сохранённым GamePlayer snapshots, независимо от текущего состава. Статистика клуба включает число партий и вечеров, победы команд, способы победы (включая legacy `UNKNOWN`), события и результаты для составов от 5 до 10 игроков. Списки игроков, вечеров и рейтинги разбиты на страницы по 10 строк.
-
-Ровно шесть рейтингов: общий winrate, Liberal, Fascist, Hitler, Руины и 200 IQ. Общий рейтинг, Руины и 200 IQ используют `minimum_total_games_for_leaderboard` (по умолчанию 10); ролевые — `minimum_role_games_for_leaderboard` (по умолчанию 5). Игроки ниже порога не входят в рейтинг; карточка показывает недостающее число игр. Рейтинги включают только active Players; историческая статистика inactive Players сохраняется и доступна ADMIN в карточке игрока.
-
-Winrate сортируется по убыванию процента, побед и игр, затем по имени и ID. Руины — по убыванию ruin rate и числа игр с Руиной, затем по имени и ID; рядом показаны события и отношение игр с Руиной к сыгранным. 200 IQ — по числу событий, затем по имени и ID. Эти показатели не являются Elo или оценкой навыка.
-
-Статистика вычисляется SQL-агрегациями из Games, GamePlayers и GameEvents, без постоянных счётчиков и кеша. VOID Games и их события исключены из всех показателей. Статус самого вечера не исключает сохранённые ACTIVE Games; VOID sessions исключены из числа вечеров и списка вечеров. Изменения Game, статуса или Event отражаются при следующем просмотре. Просмотр не создаёт AuditLog и повторно проверяет доступ к клубу. Для статистики новых миграций нет: head остаётся `0004_statistician_recovery`.
-
-## История и исправления
-
-«📜 История» открывает игровые вечера, последние партии и игры выбранного игрока. Списки вечеров, игр, игроков и журнала изменений имеют пагинацию по 10 записей. Участие в партии определяется GamePlayer snapshot. Карточка вечера использует StatsService; карточка партии показывает дату в часовом поясе клуба, роли, результат, статус и события. События вынесены в отдельное сообщение со своей пагинацией; длинные комментарии в списке сокращаются, полностью доступны в карточке события.
-
-Обычный PLAYER смотрит историю. STATISTICIAN может исправлять Games и Events только своего текущего ACTIVE вечера; после завершения или передачи ведения эти права прекращаются. ADMIN может исправлять исторические Games и Events своего клуба. Все права повторно проверяются в services. VOID Games и VOID sessions доступны в истории только ADMIN.
-
-«✏️ Исправить игру» открывает черновик: участники, Hitler, Fascists, победитель и способ победы. Liberals определяются автоматически. До «Сохранить изменения» официальная Game неизменна; сохранение проверяет роли, состав и результат и выполняется одной транзакцией. Удалить участника с Events нельзя: сначала переназначьте или удалите соответствующие события. Смена роли сохраняет события игрока. Номер партии, вечер, дата создания и дата игры не меняются.
-
-ADMIN может подтвердить «🗑 Отменить игру» (VOID) и «♻️ Восстановить игру» (RESTORE). Game физически не удаляется, её sequence number не освобождается и последующие партии не перенумеровываются. Перед восстановлением вновь проверяются состав, роли и результат; повреждённая Game не восстанавливается автоматически. Legacy UNKNOWN сохраняется без угадывания причины победы. Статистика автоматически исключает VOID и возвращает восстановленную Game.
-
-В «⚙️ Управление клубом» → «👥 Игроки» ADMIN может переименовать, деактивировать и активировать игрока. Новое имя отображается в истории через Player FK. Деактивация сохраняет прошлые Games, Events и статистику, но исключает игрока из нового состава партии и выбора участников будущего вечера. Текст нового имени принимается только ответом на актуальный запрос; изменение требует подтверждения.
-
-«📋 Журнал изменений» доступен ADMIN: дата, автор, action и объект, с компактной карточкой изменений. Game changes создают `GAME_EDIT`, `GAME_VOID`, `GAME_RESTORE`; Player changes — `PLAYER_EDIT`. Сохраняются существующие `PLAYER_LINK`, `STATISTICIAN_CHANGE`, `EVENT_CREATE`, `EVENT_EDIT`, `EVENT_DELETE` (старые `STATISTICIAN_TRANSFER` остаются в исторических данных). Просмотр записей не создаёт audit.
-
-Mutation buttons связаны с конкретной записью и её версией. Edit, Back, Cancel и confirmations дополнительно связаны с текущим FSM screen token. Backend отклоняет сохранение устаревшей версии под блокировкой; concurrent исправления не затирают друг друга. Для Phase 9 изменений схемы нет, head — `0004_statistician_recovery`.
-
-## Тесты
-
-На хосте с Python 3.12+:
+На мигрированной базе **без клубов**:
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install -e '.[test]'
+docker compose run --rm app python -m app.bootstrap_admin \
+  --telegram-id 123456789 --club "Наш клуб" \
+  --timezone "Asia/Yakutsk" --player "Имя администратора"
+```
+
+Для local setup: `.venv/bin/python -m app.bootstrap_admin` с теми же аргументами. Замените numeric Telegram ID на свой. Повторный bootstrap безопасно отклоняется, без duplicate membership. После создания клуба `/start` → «Управление клубом» → invite. Historical Player linking требует отдельного подтверждения ADMIN.
+
+## Running the bot
+
+```bash
+.venv/bin/python -m app.main
+# либо
+docker compose up -d app
+```
+
+**Run exactly one bot application instance.** Long polling, без webhook. Startup: validate config → DB connection/schema check → polling. Shutdown закрывает bot HTTP session/FSM resources и SQLAlchemy engine.
+
+Если статист недоступен: текущий вечер → «⚙️ Помощь» → «Проблема со статистом / Сменить статиста». Кандидат — активный зарегистрированный присутствующий Player. Два других текущих участника явно подтверждают; инициатор/кандидат не голосуют, повторный голос не учитывается. ADMIN может сменить сразу. Recovery confirmations живут в PostgreSQL; flow теряет актуальность при finish/смене статиста/уходе кандидата.
+
+## Tests
+
+Создайте **новую пустую disposable** DB с именем `_test`; задайте TEST_DATABASE_URL, отличный от DATABASE_URL и `.env`. Guard сравнивает host/port/database независимо от user/password. Не запускайте suite параллельно: committed concurrency/backup fixtures используют общую test DB и очищают её данные. Test role должен иметь CREATE DATABASE для двух фиксированных disposable recovery/install БД. `pg_dump`, `pg_restore` должны быть в PATH.
+
+```bash
+# TEST_DATABASE_URL передайте через доверенное environment, без секретов в истории shell.
 .venv/bin/pytest
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+git diff --check
 ```
 
-Интеграционные тесты требуют отдельную PostgreSQL-базу с именем, оканчивающимся на `_test`. Создайте её и задайте `TEST_DATABASE_URL` в формате `postgresql+asyncpg://user:password@host:port/database_test` перед запуском pytest. Тесты применяют миграцию к этой базе и откатывают данные каждого теста транзакцией. Если переменная не задана, интеграционные тесты пропускаются.
+Без TEST_DATABASE_URL integration tests пропускаются: такой результат не является полной проверкой. Infrastructure tests создают/удаляют исключительно `secreth_phase10_install_test` и `secreth_phase10_recovery_test`, проверяют fresh upgrade/downgrade base/upgrade, bootstrap, pg_dump/restore, stats/history equality. Эти имена должны быть свободны. После аварийного завершения проверьте оставшиеся **test** базы перед повторным запуском; production не трогайте.
 
-Через Docker без установки Python на хосте:
+Ruff lint работает по всему проекту. Formatter проверяет новые/уже совместимые модули; явный legacy baseline в pyproject сохраняет существующий стиль Phase 1–9 и исключает массовую косметическую перепись. Mypy пока не настроен.
+
+## Import
 
 ```bash
-docker compose run --rm --build -v "$PWD/tests:/app/tests:ro" app sh -c "pip install '.[test]' && pytest"
+.venv/bin/python scripts/import_legacy.py history.xlsx --dry-run
+.venv/bin/python scripts/import_legacy.py history.xlsx --apply
+# При нескольких клубах добавьте --club-id UUID.
 ```
 
-Реальные токен и пароль держите только в `.env`; файл исключён из Git.
+В Docker: `docker compose run --rm -v "$PWD/import:/import:ro" app python scripts/import_legacy.py /import/history.xlsx --dry-run`. После проверки замените flag на `--apply`.
+
+Поддерживается только [нормализованный XLSX v1](docs/IMPORT_FORMAT.md): Players, Sessions, Games, GamePlayers, Events. Формулы запрещены; все строки/ссылки/роли проверяются. Dry-run не меняет БД; apply атомарный. Legacy UNKNOWN допустим только здесь. Ambiguous names/duplicate IDs приводят к rejection; existing Players можно явно сослать по UUID без update. Новые historical Players не связываются с Telegram. Успех создаёт один IMPORT audit с nullable actor (доверенный CLI оператор).
+
+## Export
+
+ADMIN → «Управление клубом» → «📤 Экспорт»: Telegram document с Players, Sessions, Games, GamePlayers, Events. UUID, роли, Unicode, inactive/VOID сохраняются. Все sheets читаются из одной REPEATABLE READ snapshot. String cells — literal text, защищены от Excel formula injection без изменения текста. Workbook/document находится в памяти; после отправки приложение не оставляет export files.
+
+XLSX — продуктовая история, **не полный технический backup**: без Telegram personal identity/memberships, invite tokens, club settings и старого audit. Export→import поддерживает semantic round-trip в чистую БД; в той же БД глобальные UUID конфликтуют. Для полного восстановления используйте dump.
+
+## Backup
+
+Host с PostgreSQL 16 client tools и project Python environment:
+
+```bash
+.venv/bin/python scripts/backup_db.py --directory backups
+```
+
+Берёт DATABASE_URL из environment/`.env`, password передаётся через subprocess environment, без shell interpolation/credentials в argv. Custom format (`pg_dump -Fc`), уникальное UTC filename, mode 0600. Failed dump удаляется; успешный сохраняется. `backups/`, dumps/XLSX/temp/cache ignored Git/Docker. Backup содержит персональные данные/токены БД: храните с ограниченным доступом, encryption/off-host copy.
+
+Через Compose, без filesystem volume и permission проблем unprivileged user:
+
+```bash
+mkdir -p backups
+(umask 077; docker compose exec -T db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > backups/secret_hitler.dump)
+docker compose exec -T db pg_restore --list < backups/secret_hitler.dump
+```
+
+Фиксированное имя в примере перезаписывает файл: для retention выбирайте уникальное имя. Проверяйте exit status и ненулевой размер; удаляйте failed partial dump. Script сам делает это безопасно. Настройте **ежедневный внешний cron/hosting-provider backup**, несколько последних snapshots и off-host copy; bot не содержит scheduler. Проверка `pg_restore --list` недостаточна: регулярно выполняйте actual restore в отдельную пустую DB.
+
+## Restore
+
+1. Проверьте dump (`pg_restore --list backup.dump`), сохраните исходную DB.
+2. Остановите bot: `docker compose stop app`.
+3. Создайте **новую пустую target DB**; задайте отдельную RESTORE_DATABASE_URL через доверенное environment.
+4. Запустите:
+
+```bash
+.venv/bin/python scripts/restore_db.py backup.dump --target-env RESTORE_DATABASE_URL
+```
+
+Database name для tools: letters/digits/underscore/dash (без connection-string syntax). Tool печатает host/port/database **без credentials**, требует `Type RESTORE to continue`. Для automation нужен явный `--yes`. Не делает DROP/--clean; restore одной транзакцией в занятую DB отклоняется без частичной замены. Переключите DATABASE_URL на восстановленную DB только после проверки.
+
+5. `alembic upgrade head` на target; проверьте `alembic current`, counts, stats/history.
+6. Запустите bot, проверьте startup/logs и `/start`.
+
+Через Compose можно восстановить dump в заранее созданную отдельную DB (`recovered_stats` — пример, не существующая production):
+
+```bash
+docker compose exec -T db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_restore --exit-on-error --single-transaction --no-owner --no-privileges -U "$POSTGRES_USER" -d recovered_stats' < backups/secret_hitler.dump
+```
+
+Raw pg_restore не задаёт вопрос: заранее проверьте target. Для interactive safety используйте restore script. Не удаляйте production DB или volume ради восстановления.
+
+## Deployment/update
+
+1. Сделайте и проверьте backup, сохраните off-host copy.
+2. Остановите app: `docker compose stop app`.
+3. Обновите код, пересоберите: `docker compose build app`.
+4. Примените schema: `docker compose run --rm app alembic upgrade head`.
+5. Запустите: `docker compose up -d app`.
+6. Проверьте `docker compose logs --tail 100 app`, `alembic current`.
+7. Выполните [go-live smoke checklist](docs/GO_LIVE.md).
+
+Не запускайте старый bot одновременно с новым. Обновление image не удаляет named volume. Если migration несовместима со старым кодом, rollback plan определяется до deployment; не выполняйте destructive downgrade на рабочей БД.
+
+## Troubleshooting
+
+- **Bot does not start:** проверьте BOT_TOKEN, DATABASE_URL/driver, credentials, DB connectivity/health, schema revision. Не публикуйте config с secrets. Invalid config останавливает startup.
+- **Database outdated/missing:** оператор запускает `alembic upgrade head`, затем bot restart; auto migration отсутствует.
+- **Telegram buttons outdated:** «Эта кнопка больше не актуальна» ожидаемо; откройте текущий экран и начните flow заново.
+- **Import rejected:** `--dry-run`, номера строк/errors, явные UUID mappings, enum codes, timezone timestamps; не обходите проверки.
+- **Restore rejected:** target должен быть пустым, client version 16, правильные credentials и custom dump. Существующая DB не очищается автоматически.
+- **Two pollers / Telegram conflict:** остановите лишний instance; оставьте ровно один.
+- **Infrastructure error:** пользователь получает нейтральное сообщение; exception/context находятся в redacted logs. Domain errors остаются конкретными.
+
+## Known limitations
+
+- One bot instance only; no horizontal scaling.
+- FSM drafts live in memory; unfinished wizard is lost on restart. Saved Games/Events/recovery confirmations остаются в PostgreSQL, draft не попадает в stats.
+- Long polling; no webhook/HTTP health server/Mini App/website.
+- Import только normalized XLSX; неизвестный legacy layout требует отдельного адаптера после получения файла. Нет CSV importer.
+- XLSX не заменяет PostgreSQL dump и не переносит Telegram accounts автоматически.
+- Backup schedule/retention/off-host copy настраивает оператор вне bot process.
+- Полный реальный Telegram smoke и Docker deployment проверяются в целевой среде по GO_LIVE; unit/mock tests не означают live verification.

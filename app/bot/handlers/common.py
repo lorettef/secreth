@@ -15,7 +15,7 @@ async def reply(
 ) -> None:
     if isinstance(callback.message, Message):
         await callback.answer()
-        await callback.message.answer(text, reply_markup=keyboard)
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode=None)
     else:
         await callback.answer(text, show_alert=True)
 

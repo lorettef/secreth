@@ -157,3 +157,7 @@ class HistoryStep(CallbackData, prefix="hs"):
 class HistoryPick(CallbackData, prefix="hi"):
     flow: str
     player_id: UUID
+
+
+class ExportClub(CallbackData, prefix="export"):
+    club_id: UUID

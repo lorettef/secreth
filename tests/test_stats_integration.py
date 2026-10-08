@@ -13,8 +13,8 @@ from app.db.models import AuditLog, Club, ClubMembership, Game, GameEvent, GameP
 from app.domain.enums import EventType, GameRole, GameStatus, MembershipRole, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
 from app.domain.roles import get_role_distribution
 from app.domain.stats import LeaderboardKind, percentage
-from app.services.stats import StatsError, StatsErrorCode, StatsService
-from test_games_integration import seed, test_database_url
+from app.services.stats import StatsError, StatsService
+from test_games_integration import seed, test_database_url  # noqa: F401
 
 
 @dataclass

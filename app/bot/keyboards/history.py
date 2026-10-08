@@ -1,6 +1,6 @@
 """History lists and screen-bound corrections."""
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 from app.bot.callbacks import ClubAction, EventStart, GameCard, HistoryMutation, HistoryPage, HistoryPick, HistoryStep
 from app.bot.keyboards.stats import button, pagination
 from app.locales import ru

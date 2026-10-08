@@ -15,6 +15,7 @@ from app.bot.callbacks import (
     SessionStart,
     StatsPage,
     HistoryPage,
+    ExportClub,
 )
 from app.domain.enums import MembershipRole
 from app.locales import ru
@@ -86,6 +87,7 @@ def player_choices(
 def admin_menu(club_id: UUID) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=ru.EXPORT_BUTTON, callback_data=ExportClub(club_id=club_id).pack())],
             [InlineKeyboardButton(text=ru.HISTORY_PLAYERS_ADMIN,
                                   callback_data=HistoryPage(scope_id=club_id, section="manage").pack())],
             [InlineKeyboardButton(text=ru.HISTORY_AUDIT,

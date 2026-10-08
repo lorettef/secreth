@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -18,7 +18,7 @@ from app.bot.callbacks import EventAction, EventChoice, EventPick, EventSave, Ga
 from app.bot.handlers import history as handlers
 from app.bot.handlers.events import EventFlow, action as event_action, choose, pick_player, save as event_save
 from app.bot.keyboards import history as keyboards
-from app.domain.enums import EventType, GameRole, GameStatus, MembershipRole, RuinReason, SessionStatus, Team, VictoryType
+from app.domain.enums import EventType, GameRole, GameStatus, RuinReason, SessionStatus, Team, VictoryType
 from app.locales import ru
 from app.main import create_dispatcher
 from app.services.events import EventSetup, EventView

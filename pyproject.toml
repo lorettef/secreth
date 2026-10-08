@@ -13,12 +13,15 @@ dependencies = [
     "asyncpg>=0.29,<1",
     "alembic>=1.13,<2",
     "pydantic-settings>=2,<3",
+    "openpyxl>=3.1,<4",
+    "python-dotenv>=1,<2",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest>=8,<9",
     "pytest-asyncio>=0.23,<2",
+    "ruff>=0.9,<1",
 ]
 
 [tool.setuptools.packages.find]
@@ -26,3 +29,72 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest discovers imported fixtures by name; function parameters intentionally shadow them.
+"tests/test_*integration.py" = ["F811"]
+"tests/test_spreadsheets.py" = ["F811"]
+"tests/test_production.py" = ["F811"]
+
+[tool.ruff.format]
+# Legacy format baseline: new modules/scripts are formatted; no Phase 1–9 style rewrite.
+exclude = [
+    "alembic/versions/0001_initial_models.py",
+    "alembic/versions/0002_player_link_requests.py",
+    "alembic/versions/0004_statistician_recovery.py",
+    "app/bootstrap_admin.py",
+    "app/bot/handlers/admin.py",
+    "app/bot/handlers/events.py",
+    "app/bot/handlers/games.py",
+    "app/bot/handlers/history.py",
+    "app/bot/handlers/membership.py",
+    "app/bot/handlers/sessions.py",
+    "app/bot/handlers/start.py",
+    "app/bot/handlers/stats.py",
+    "app/bot/keyboards/events.py",
+    "app/bot/keyboards/games.py",
+    "app/bot/keyboards/history.py",
+    "app/bot/keyboards/membership.py",
+    "app/bot/keyboards/sessions.py",
+    "app/bot/keyboards/stats.py",
+    "app/db/models.py",
+    "app/db/session.py",
+    "app/domain/events.py",
+    "app/domain/permissions.py",
+    "app/domain/revisions.py",
+    "app/domain/roles.py",
+    "app/domain/victories.py",
+    "app/locales/ru.py",
+    "app/main.py",
+    "app/services/events.py",
+    "app/services/games.py",
+    "app/services/history.py",
+    "app/services/membership.py",
+    "app/services/sessions.py",
+    "app/services/stats.py",
+    "tests/test_config.py",
+    "tests/test_domain_events.py",
+    "tests/test_domain_permissions.py",
+    "tests/test_domain_roles.py",
+    "tests/test_event_handlers.py",
+    "tests/test_events_integration.py",
+    "tests/test_game_handlers.py",
+    "tests/test_games_integration.py",
+    "tests/test_history_handlers.py",
+    "tests/test_history_integration.py",
+    "tests/test_membership_integration.py",
+    "tests/test_models_integration.py",
+    "tests/test_onboarding_handlers.py",
+    "tests/test_session_handlers.py",
+    "tests/test_sessions_integration.py",
+    "tests/test_statistician_recovery_integration.py",
+    "tests/test_stats_handlers.py",
+    "tests/test_stats_integration.py",
+]

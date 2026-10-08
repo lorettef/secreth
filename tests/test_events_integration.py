@@ -14,9 +14,9 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Chat, Message, User
 
-from test_games_integration import seed, test_database_url
+from test_games_integration import seed, test_database_url  # noqa: F401
 from app.db.models import AuditLog, Club, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player, SessionParticipant, TelegramUser
-from app.domain.enums import EventType, MembershipRole, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
+from app.domain.enums import EventType, MembershipRole, MembershipStatus, RuinReason, Team, VictoryType
 from app.services.events import EventError, EventErrorCode, EventService
 from app.services.games import GameService
 from app.services.sessions import SessionService

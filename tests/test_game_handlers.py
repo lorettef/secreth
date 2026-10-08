@@ -14,12 +14,12 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
 from app.bot.callbacks import GameAction, GameAfter, GameChoice, GamePick, GameSave
-from app.bot.handlers.games import GameFlow, _screen, action, after, begin_wizard, choice, pick, save
+from app.bot.handlers.games import GameFlow, _screen, action, after, choice, pick, save
 from app.bot.keyboards import games as keyboards
 from app.domain.enums import SessionStatus, Team, VictoryType
 from app.locales import ru
 from app.main import create_dispatcher
-from app.services.games import GameError, GameErrorCode, GamePerson, GameResult, GameSetup
+from app.services.games import GamePerson, GameResult, GameSetup
 from app.services.sessions import SessionView
 
 PLAYERS = tuple(GamePerson(UUID(int=i), f"Player {i}") for i in range(1, 13))
