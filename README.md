@@ -92,7 +92,35 @@ docker compose run --rm app alembic upgrade head
 
 Startup сверяет Alembic revision с head и отказывается запускаться при missing/outdated schema. Migrations выполняет оператор: bot не делает auto migration. `downgrade base` удаляет tables, поэтому полный cycle проверяйте только на disposable test DB.
 
-## First ADMIN
+## Первоначальная настройка клуба Ministry v1.1
+
+Сначала примените миграции к новой базе. Затем оператор выполняет три отдельные
+команды. Учётные данные базы остаются в переменных окружения и не передаются в
+аргументах команд.
+
+```bash
+# 1. Создать пустой клуб и сохранить выведенный UUID.
+docker compose run --rm app python -m app.bootstrap_club create-club \
+  --club "Наш клуб" --timezone "Asia/Yakutsk"
+
+# 2. Создать единственное bootstrap-приглашение. Выведенный токен является секретом.
+docker compose run --rm app python -m app.bootstrap_club create-invite \
+  --club-id 00000000-0000-0000-0000-000000000000
+
+# 3. После вступления пользователя назначить его membership владельцем.
+docker compose run --rm app python -m app.bootstrap_club assign-owner \
+  --club-id 00000000-0000-0000-0000-000000000000 \
+  --telegram-id 123456789
+```
+
+Для локального запуска замените `docker compose run --rm app python` на
+`.venv/bin/python`. Приглашение одноразовое и бессрочное. Второе
+bootstrap-приглашение, назначение пользователя из другого клуба и назначение
+второго OWNER отклоняются. Повторный `assign-owner` для того же membership
+безопасен. Токен выводится только как явный результат CLI и не записывается в
+логи приложения или данные аудита.
+
+## Legacy first ADMIN
 
 На мигрированной базе **без клубов**:
 

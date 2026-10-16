@@ -175,12 +175,30 @@ class InviteToken(Base):
         UniqueConstraint("token", name="uq_invite_tokens_token"),
         CheckConstraint("max_uses IS NULL OR max_uses > 0", name="ck_invite_tokens_max_uses"),
         CheckConstraint("uses_count >= 0", name="ck_invite_tokens_uses_count"),
+        CheckConstraint(
+            "(is_bootstrap AND created_by IS NULL) OR "
+            "(NOT is_bootstrap AND created_by IS NOT NULL)",
+            name="ck_invite_tokens_creator_origin",
+        ),
+        CheckConstraint(
+            "NOT is_bootstrap OR (max_uses = 1 AND expires_at IS NULL)",
+            name="ck_invite_tokens_bootstrap_options",
+        ),
+        Index(
+            "uq_invite_tokens_bootstrap_per_club",
+            "club_id",
+            unique=True,
+            postgresql_where=text("is_bootstrap"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id"), nullable=False)
     token: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    is_bootstrap: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     max_uses: Mapped[int | None] = mapped_column(Integer)

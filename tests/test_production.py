@@ -160,7 +160,7 @@ async def test_schema_ready_and_outdated(exchange):
     finally:
         async with engine.begin() as db:
             await db.execute(
-                text("UPDATE alembic_version SET version_num='0005_owner_role'")
+                text("UPDATE alembic_version SET version_num='0006_bootstrap_invites'")
             )
 
 
@@ -386,6 +386,8 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             legacy_club_id = uuid4()
             legacy_player_id = uuid4()
             legacy_admin_id = uuid4()
+            legacy_profile_id = uuid4()
+            legacy_invite_id = uuid4()
             async with engine.begin() as db:
                 await db.execute(
                     text(
@@ -416,6 +418,30 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                         "admin_id": legacy_admin_id,
                     },
                 )
+                await db.execute(
+                    text(
+                        "INSERT INTO players "
+                        "(id, club_id, display_name, telegram_user_id) "
+                        "VALUES (:id, :club_id, 'Legacy player', :user_id)"
+                    ),
+                    {
+                        "id": legacy_profile_id,
+                        "club_id": legacy_club_id,
+                        "user_id": legacy_player_id,
+                    },
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO invite_tokens "
+                        "(id, club_id, token, created_by, max_uses) "
+                        "VALUES (:id, :club_id, 'legacy-invite', :player_id, 3)"
+                    ),
+                    {
+                        "id": legacy_invite_id,
+                        "club_id": legacy_club_id,
+                        "player_id": legacy_profile_id,
+                    },
+                )
             await asyncio.to_thread(command.upgrade, config, "head")
             async with engine.connect() as db:
                 result = await db.execute(
@@ -426,7 +452,37 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                     {"club_id": legacy_club_id},
                 )
                 roles = result.scalars().all()
+                legacy_invite = (
+                    await db.execute(
+                        text(
+                            "SELECT created_by, is_bootstrap, max_uses "
+                            "FROM invite_tokens WHERE id = :id"
+                        ),
+                        {"id": legacy_invite_id},
+                    )
+                ).one()
             assert roles == ["ADMIN", "PLAYER"]
+            assert legacy_invite.created_by == legacy_profile_id
+            assert legacy_invite.is_bootstrap is False
+            assert legacy_invite.max_uses == 3
+
+            bootstrap_invite_id = uuid4()
+            async with engine.begin() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO invite_tokens "
+                        "(id, club_id, token, created_by, is_bootstrap, max_uses) "
+                        "VALUES (:id, :club_id, 'bootstrap-invite', NULL, true, 1)"
+                    ),
+                    {"id": bootstrap_invite_id, "club_id": legacy_club_id},
+                )
+            with pytest.raises(RuntimeError, match="bootstrap invitations exist"):
+                await asyncio.to_thread(command.downgrade, config, "0005_owner_role")
+            async with engine.begin() as db:
+                await db.execute(
+                    text("DELETE FROM invite_tokens WHERE id = :id"),
+                    {"id": bootstrap_invite_id},
+                )
 
             owner_user_id = uuid4()
             async with engine.begin() as db:
@@ -465,6 +521,10 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                 command.downgrade, config, "0004_statistician_recovery"
             )
             async with engine.connect() as db:
+                downgraded_invite_creator = await db.scalar(
+                    text("SELECT created_by FROM invite_tokens WHERE id = :id"),
+                    {"id": legacy_invite_id},
+                )
                 owner_enum_value = await db.scalar(
                     text(
                         "SELECT count(*) FROM pg_enum e "
@@ -479,6 +539,7 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                         "'public.uq_club_memberships_one_owner_per_club')"
                     )
                 )
+            assert downgraded_invite_creator == legacy_profile_id
             assert owner_enum_value == 1
             assert owner_index is None
 

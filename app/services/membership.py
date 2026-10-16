@@ -1,6 +1,5 @@
 """Invitation, membership, and historical player linking workflows."""
 
-import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,6 +20,7 @@ from app.db.models import (
 )
 from app.domain.enums import MembershipRole, MembershipStatus, PlayerLinkStatus
 from app.domain.permissions import ActorContext, can_manage_club
+from app.services.invites import generate_invite_token
 
 
 class MembershipErrorCode(StrEnum):
@@ -267,7 +267,7 @@ class MembershipService:
             admin_player = await self._require_admin(session, user.id, club_id)
             if admin_player is None:
                 raise MembershipError(MembershipErrorCode.ADMIN_PLAYER_REQUIRED)
-            token = secrets.token_urlsafe(24)
+            token = generate_invite_token()
             session.add(
                 InviteToken(
                     club_id=club_id,
