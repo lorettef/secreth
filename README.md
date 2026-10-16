@@ -61,7 +61,7 @@ Settings/import/backup tools читают `.env`. Для Alembic можно за
 
 ## Docker setup
 
-Compose services называются **db** (PostgreSQL) и **app** (bot). Named volume `postgres_data` сохраняет данные; db healthcheck — pg_isready. Оба services имеют restart unless-stopped. Bot image работает от unprivileged user, без dev dependencies/.git/.env/backups.
+Compose services называются **db** (PostgreSQL) и **app** (bot). Named volume `postgres_data` сохраняет данные; db healthcheck — pg_isready. Оба services имеют restart unless-stopped. Bot image работает от unprivileged user, без dev dependencies/.git/.env/backups. HTTP API запускается отдельным процессом и пока намеренно не добавлен в Compose.
 
 ```bash
 docker compose up -d db
@@ -145,6 +145,22 @@ docker compose up -d app
 ```
 
 **Run exactly one bot application instance.** Long polling, без webhook. Startup: validate config → DB connection/schema check → polling. Shutdown закрывает bot HTTP session/FSM resources и SQLAlchemy engine.
+
+## Running the HTTP API
+
+FastAPI запускается независимо от Telegram polling, но использует те же `Settings`,
+SQLAlchemy session factory и application services:
+
+```bash
+.venv/bin/uvicorn app.http:app --host 127.0.0.1 --port 8000
+```
+
+`GET /health` возвращает только `{"status":"ok"}`. `GET /api/v1/me` требует
+`Authorization: tma <raw Telegram.WebApp.initData>` и обязательный `club_id` query
+parameter; club scope повторно проверяется сервером. Default TTL initData — 3600
+секунд, допустимый конфигурационный максимум — 86400 секунд. CORS по умолчанию
+отключён; `MINI_APP_ALLOWED_ORIGINS` принимает JSON-массив точных HTTPS origins,
+например `["https://mini.example.org"]`. Wildcard запрещён.
 
 Если статист недоступен: текущий вечер → «⚙️ Помощь» → «Проблема со статистом / Сменить статиста». Кандидат — активный зарегистрированный присутствующий Player. Два других текущих участника явно подтверждают; инициатор/кандидат не голосуют, повторный голос не учитывается. ADMIN может сменить сразу. Recovery confirmations живут в PostgreSQL; flow теряет актуальность при finish/смене статиста/уходе кандидата.
 

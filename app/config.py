@@ -1,6 +1,7 @@
 """Environment-backed application settings."""
 
 import logging
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
@@ -17,6 +18,9 @@ class Settings(BaseSettings):
     database_url: str = Field(repr=False)
     log_level: str = "INFO"
     default_timezone: str = "UTC"
+    telegram_init_data_max_age_seconds: int = Field(default=3600, ge=1, le=86400)
+    telegram_init_data_future_skew_seconds: int = Field(default=30, ge=0, le=300)
+    mini_app_allowed_origins: list[str] = Field(default_factory=list)
 
     @field_validator("default_timezone")
     @classmethod
@@ -44,4 +48,27 @@ class Settings(BaseSettings):
         normalized = value.upper()
         if normalized not in logging.getLevelNamesMapping():
             raise ValueError("LOG_LEVEL must be a standard logging level")
+        return normalized
+
+    @field_validator("mini_app_allowed_origins")
+    @classmethod
+    def validate_mini_app_allowed_origins(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            origin = value.rstrip("/")
+            parsed = urlsplit(origin)
+            if (
+                value == "*"
+                or parsed.scheme != "https"
+                or not parsed.netloc
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "MINI_APP_ALLOWED_ORIGINS must contain exact HTTPS origins"
+                )
+            normalized.append(origin)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("MINI_APP_ALLOWED_ORIGINS must not contain duplicates")
         return normalized
