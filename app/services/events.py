@@ -11,10 +11,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import AuditLog, Game, GameEvent, GamePlayer, GameSession, Player
-from app.domain.enums import EventType, GameStatus, MembershipStatus, RuinReason, SessionStatus
+from app.domain.enums import EventType, GameStatus, RuinReason, SessionStatus
 from app.domain.revisions import revision
 from app.domain.events import EventFields, EventValidationError, validate_event
-from app.domain.permissions import ActorContext, SessionContext, can_edit_game, can_manage_club
+from app.domain.permissions import ActorContext, SessionContext, can_edit_game, can_manage_club, can_view_club
 from app.services.access import resolve_actor
 from app.services.games import GamePerson
 
@@ -160,7 +160,7 @@ class EventService:
             game = await db.scalar(select(Game).where(Game.id == game_id).with_for_update()
                                    .execution_options(populate_existing=True))
         actor = await resolve_actor(db, telegram_id, evening.club_id)
-        if actor.membership_status is not MembershipStatus.ACTIVE:
+        if not can_view_club(actor, evening.club_id):
             raise EventError(EventErrorCode.NO_ACCESS)
         if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and not can_manage_club(actor, evening.club_id):
             raise EventError(EventErrorCode.NO_ACCESS)

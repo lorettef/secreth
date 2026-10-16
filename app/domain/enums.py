@@ -11,6 +11,7 @@ class MembershipRole(str, enum.Enum):
 
 class MembershipStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
     BLOCKED = "BLOCKED"
 
 

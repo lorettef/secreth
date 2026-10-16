@@ -10,8 +10,8 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Club, Game, GameEvent, GamePlayer, GameSession, Player, TelegramUser
-from app.domain.enums import EventType, GameRole, GameStatus, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
-from app.domain.permissions import ActorContext, can_manage_players
+from app.domain.enums import EventType, GameRole, GameStatus, RuinReason, SessionStatus, Team, VictoryType
+from app.domain.permissions import ActorContext, can_manage_players, can_view_club
 from app.domain.stats import LeaderboardKind, percentage
 from app.services.access import resolve_actor_with_club
 
@@ -283,8 +283,7 @@ class StatsService:
 
     async def _access(self, db: AsyncSession, telegram_id: int, club_id: UUID) -> tuple[Club, ActorContext]:
         actor, club = await resolve_actor_with_club(db, telegram_id, club_id)
-        if (actor.membership_status is not MembershipStatus.ACTIVE
-                or actor.membership_role is None):
+        if not can_view_club(actor, club_id):
             raise StatsError(StatsErrorCode.NO_ACCESS)
         if club is None:
             raise StatsError(StatsErrorCode.NO_ACCESS)

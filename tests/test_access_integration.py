@@ -148,7 +148,9 @@ async def test_active_membership_without_player(access_db: AsyncSession) -> None
 
 
 @pytest.mark.asyncio
-async def test_inactive_player_with_active_membership(access_db: AsyncSession) -> None:
+async def test_membership_status_is_canonical_over_legacy_player_flag(
+    access_db: AsyncSession,
+) -> None:
     club = await add_club(access_db)
     user = await add_user(access_db, 91003)
     await add_membership(access_db, club, user)
@@ -158,7 +160,7 @@ async def test_inactive_player_with_active_membership(access_db: AsyncSession) -
 
     assert actor.membership_status is MembershipStatus.ACTIVE
     assert actor.player_id == player.id
-    assert not actor.player_is_active
+    assert actor.player_is_active
 
 
 @pytest.mark.asyncio
@@ -178,7 +180,7 @@ async def test_blocked_membership_is_preserved_in_context(
     assert actor.membership_role is MembershipRole.PLAYER
     assert actor.membership_status is MembershipStatus.BLOCKED
     assert actor.player_id == player.id
-    assert actor.player_is_active
+    assert not actor.player_is_active
 
 
 @pytest.mark.asyncio

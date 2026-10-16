@@ -33,6 +33,17 @@ def _is_active_member(actor: ActorContext) -> bool:
     )
 
 
+def can_view_club(actor: ActorContext, club_id: UUID) -> bool:
+    """Allow read-only club access to active and inactive members."""
+    return (
+        actor.club_id == club_id
+        and actor.membership_status
+        in (MembershipStatus.ACTIVE, MembershipStatus.INACTIVE)
+        and actor.membership_role
+        in (MembershipRole.PLAYER, MembershipRole.ADMIN, MembershipRole.OWNER)
+    )
+
+
 def _has_admin_access(actor: ActorContext) -> bool:
     return _is_active_member(actor) and actor.membership_role in (
         MembershipRole.ADMIN,
@@ -82,8 +93,12 @@ def can_request_recovery(
 
 
 def can_confirm_recovery(
-    actor: ActorContext, session: SessionContext, *, is_present: bool,
-    initiator_player_id: UUID | None, candidate_player_id: UUID,
+    actor: ActorContext,
+    session: SessionContext,
+    *,
+    is_present: bool,
+    initiator_player_id: UUID | None,
+    candidate_player_id: UUID,
 ) -> bool:
     return (
         _is_active_member(actor)
@@ -112,3 +127,17 @@ def can_manage_club(actor: ActorContext, club_id: UUID) -> bool:
 
 def can_manage_admins(actor: ActorContext, club_id: UUID) -> bool:
     return actor.club_id == club_id and _is_owner(actor)
+
+
+def can_change_member_status(
+    actor: ActorContext, club_id: UUID, target_role: MembershipRole
+) -> bool:
+    """Apply the role hierarchy for the ordinary member-status operation."""
+    if actor.club_id != club_id or target_role is MembershipRole.OWNER:
+        return False
+    if not _has_admin_access(actor):
+        return False
+    return (
+        actor.membership_role is MembershipRole.OWNER
+        or target_role is MembershipRole.PLAYER
+    )

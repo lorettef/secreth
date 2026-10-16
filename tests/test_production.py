@@ -160,7 +160,7 @@ async def test_schema_ready_and_outdated(exchange):
     finally:
         async with engine.begin() as db:
             await db.execute(
-                text("UPDATE alembic_version SET version_num='0007_player_profiles'")
+                text("UPDATE alembic_version SET version_num='0008_member_statuses'")
             )
 
 
@@ -411,7 +411,7 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                         "INSERT INTO club_memberships "
                         "(id, club_id, telegram_user_id, role, status) VALUES "
                         "(:player_membership_id, :club_id, :player_id, 'PLAYER', 'ACTIVE'), "
-                        "(:admin_membership_id, :club_id, :admin_id, 'ADMIN', 'ACTIVE')"
+                        "(:admin_membership_id, :club_id, :admin_id, 'ADMIN', 'BLOCKED')"
                     ),
                     {
                         "player_membership_id": uuid4(),
@@ -424,8 +424,8 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                 await db.execute(
                     text(
                         "INSERT INTO players "
-                        "(id, club_id, display_name, telegram_user_id) "
-                        "VALUES (:id, :club_id, 'Legacy player', :user_id)"
+                        "(id, club_id, display_name, telegram_user_id, is_active) "
+                        "VALUES (:id, :club_id, 'Legacy player', :user_id, false)"
                     ),
                     {
                         "id": legacy_profile_id,
@@ -487,12 +487,12 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             async with engine.connect() as db:
                 result = await db.execute(
                     text(
-                        "SELECT role::text FROM club_memberships "
+                        "SELECT role::text, status::text FROM club_memberships "
                         "WHERE club_id = :club_id ORDER BY role::text"
                     ),
                     {"club_id": legacy_club_id},
                 )
-                roles = result.scalars().all()
+                memberships = result.all()
                 legacy_invite = (
                     await db.execute(
                         text(
@@ -502,7 +502,7 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                         {"id": legacy_invite_id},
                     )
                 ).one()
-            assert roles == ["ADMIN", "PLAYER"]
+            assert memberships == [("ADMIN", "BLOCKED"), ("PLAYER", "INACTIVE")]
             assert legacy_invite.created_by == legacy_profile_id
             assert legacy_invite.is_bootstrap is False
             assert legacy_invite.max_uses == 3

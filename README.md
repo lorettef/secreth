@@ -84,7 +84,8 @@ docker compose logs -f app
 - 0004_statistician_recovery — persistent emergency requests/confirmations.
 - 0005_owner_role — единственная роль OWNER внутри клуба.
 - 0006_bootstrap_invites — одно системное bootstrap-приглашение на клуб.
-- 0007_player_profiles — nullable профиль участника и уникальный без учёта регистра ник внутри клуба; текущая единственная head.
+- 0007_player_profiles — nullable профиль участника и уникальный без учёта регистра ник внутри клуба.
+- 0008_member_statuses — канонические ACTIVE / INACTIVE / BLOCKED статусы membership; текущая единственная head.
 
 ```bash
 docker compose run --rm app alembic current

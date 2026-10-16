@@ -10,8 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import AuditLog, Game, GameEvent, GamePlayer, GameSession, Player, SessionParticipant
-from app.domain.enums import GameRole, GameStatus, MembershipStatus, SessionStatus, Team, VictoryType
-from app.domain.permissions import ActorContext, SessionContext, can_create_game, can_edit_game, can_manage_club
+from app.domain.enums import GameRole, GameStatus, SessionStatus, Team, VictoryType
+from app.domain.permissions import ActorContext, SessionContext, can_create_game, can_edit_game, can_manage_club, can_view_club
 from app.domain.revisions import revision
 from app.domain.roles import RoleValidationError, assign_liberals, validate_game_roles
 from app.domain.victories import VictoryValidationError, validate_victory
@@ -191,7 +191,7 @@ class GameService:
     async def _actor(self, db: AsyncSession, telegram_id: int,
                      club_id: uuid.UUID) -> ActorContext:
         actor = await resolve_actor(db, telegram_id, club_id)
-        if actor.membership_status is not MembershipStatus.ACTIVE:
+        if not can_view_club(actor, club_id):
             raise GameError(GameErrorCode.NO_ACCESS)
         return actor
 

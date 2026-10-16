@@ -568,15 +568,15 @@ async def test_real_postgresql_concurrent_corrections_are_serialized(test_databa
 @pytest.mark.asyncio
 async def test_inactive_player_is_excluded_from_future_evening_and_statistician_candidates(history_data):
     f = history_data
-    _, p = await f.history.player(8802, f.players[1])
+    _, p = await f.history.player(8802, f.players[0])
     await f.history.edit_player(8802, p.id, expected_revision=p.revision, is_active=False)
     with pytest.raises(SessionError):
-        await f.sessions.transfer(8801, f.evening, p.id)
-    assert p.id not in {p.id for p in await f.sessions.recovery_choices(8801, f.evening)}
-    await f.sessions.finish(8801, f.evening)
-    assert p.id not in {p.id for p in await f.sessions.active_players(8801, f.club)}
+        await f.sessions.transfer(8802, f.evening, p.id)
+    assert p.id not in {p.id for p in await f.sessions.recovery_choices(8802, f.evening)}
+    await f.sessions.finish(8802, f.evening)
+    assert p.id not in {p.id for p in await f.sessions.active_players(8802, f.club)}
     with pytest.raises(SessionError, match="INVALID_SELECTION"):
-        await f.sessions.start(8801, f.club, f.players[:5])
+        await f.sessions.start(8802, f.club, f.players[:5])
     assert (await f.stats.get_player_stats(8802, f.club, p.id)).total_games == 1
 
 

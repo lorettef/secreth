@@ -16,6 +16,8 @@ from app.domain.permissions import (
     can_manage_current_session,
     can_manage_players,
     can_start_session,
+    can_view_club,
+    can_change_member_status,
 )
 
 CLUB_ID = UUID(int=1)
@@ -151,6 +153,32 @@ def test_missing_membership_role_denies_access(player: ActorContext) -> None:
     actor = replace(player, membership_role=None)
     assert not can_start_session(actor, CLUB_ID, has_active_session=False)
     assert not can_manage_club(actor, CLUB_ID)
+
+
+def test_inactive_member_has_read_only_access(
+    player: ActorContext, active_session: SessionContext
+) -> None:
+    inactive = replace(player, membership_role=MembershipRole.OWNER,
+                       membership_status=MembershipStatus.INACTIVE,
+                       player_is_active=False)
+    assert can_view_club(inactive, CLUB_ID)
+    assert not can_view_club(inactive, OTHER_CLUB_ID)
+    assert not can_start_session(inactive, CLUB_ID, has_active_session=False)
+    assert not can_manage_current_session(inactive, active_session)
+    assert not can_manage_club(inactive, CLUB_ID)
+    assert not can_manage_admins(inactive, CLUB_ID)
+
+
+def test_member_status_role_hierarchy(player: ActorContext) -> None:
+    admin = replace(player, membership_role=MembershipRole.ADMIN)
+    owner = replace(player, membership_role=MembershipRole.OWNER)
+    assert can_change_member_status(admin, CLUB_ID, MembershipRole.PLAYER)
+    assert not can_change_member_status(admin, CLUB_ID, MembershipRole.ADMIN)
+    assert not can_change_member_status(admin, CLUB_ID, MembershipRole.OWNER)
+    assert can_change_member_status(owner, CLUB_ID, MembershipRole.PLAYER)
+    assert can_change_member_status(owner, CLUB_ID, MembershipRole.ADMIN)
+    assert not can_change_member_status(owner, CLUB_ID, MembershipRole.OWNER)
+    assert not can_change_member_status(owner, OTHER_CLUB_ID, MembershipRole.PLAYER)
 
 
 @pytest.mark.parametrize("present", [False, True])

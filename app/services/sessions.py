@@ -16,7 +16,7 @@ from app.db.models import (
 from app.domain.enums import GameStatus, MembershipStatus, RecoveryStatus, SessionStatus, Team
 from app.domain.permissions import (
     ActorContext, SessionContext, can_confirm_recovery, can_manage_club,
-    can_manage_current_session, can_request_recovery, can_start_session,
+    can_manage_current_session, can_request_recovery, can_start_session, can_view_club,
 )
 from app.services.access import resolve_actor
 
@@ -452,7 +452,7 @@ class SessionService:
 
     async def _actor(self, db: AsyncSession, telegram_id: int, club_id: uuid.UUID) -> ActorContext:
         actor = await resolve_actor(db, telegram_id, club_id)
-        if actor.membership_status is not MembershipStatus.ACTIVE:
+        if not can_view_club(actor, club_id):
             raise SessionError(SessionErrorCode.NO_ACCESS)
         return actor
 

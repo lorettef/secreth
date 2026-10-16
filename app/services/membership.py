@@ -20,7 +20,7 @@ from app.db.models import (
     TelegramUser,
 )
 from app.domain.enums import MembershipRole, MembershipStatus, PlayerLinkStatus
-from app.domain.permissions import ActorContext, can_manage_club
+from app.domain.permissions import ActorContext, can_change_member_status, can_manage_club
 from app.domain.profiles import MAX_PROFILE_FIELD_LENGTH, normalize_profile_text
 from app.services.invites import generate_invite_token
 
@@ -47,6 +47,10 @@ class MembershipErrorCode(StrEnum):
     PLAYER_NOT_AVAILABLE = "PLAYER_NOT_AVAILABLE"
     REQUEST_NOT_FOUND = "REQUEST_NOT_FOUND"
     ALREADY_REVIEWED = "ALREADY_REVIEWED"
+    INACTIVE = "INACTIVE"
+    INVALID_STATUS = "INVALID_STATUS"
+    TARGET_NOT_FOUND = "TARGET_NOT_FOUND"
+    TARGET_ROLE_FORBIDDEN = "TARGET_ROLE_FORBIDDEN"
 
 
 class MembershipError(ValueError):
@@ -70,6 +74,7 @@ class ClubView:
     role: MembershipRole
     player_name: str | None
     has_pending_link: bool
+    status: MembershipStatus = MembershipStatus.ACTIVE
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,14 @@ class PlayerProfileView:
     last_name: str
     school_nickname: str
     display_name: str
+
+
+@dataclass(frozen=True)
+class MemberStatusChange:
+    membership_id: uuid.UUID
+    player_id: uuid.UUID
+    status: MembershipStatus
+    changed: bool
 
 
 @dataclass(frozen=True)
@@ -148,7 +161,7 @@ class MembershipService:
                     select(ClubMembership)
                     .where(
                         ClubMembership.telegram_user_id == user.id,
-                        ClubMembership.status == MembershipStatus.ACTIVE,
+                        ClubMembership.status != MembershipStatus.BLOCKED,
                     )
                     .order_by(ClubMembership.created_at)
                 )
@@ -210,7 +223,7 @@ class MembershipService:
     async def create_new_player(self, telegram_id: int, club_id: uuid.UUID) -> ClubView:
         async with self._session_factory() as session, session.begin():
             user = await self._get_user(session, telegram_id, lock=True)
-            membership = await self._require_member(session, user.id, club_id)
+            membership = await self._require_active_member(session, user.id, club_id)
             if await self._bound_player(session, user.id, club_id):
                 raise MembershipError(MembershipErrorCode.ALREADY_LINKED)
             if await self._pending_for_user(session, user.id, club_id):
@@ -238,7 +251,7 @@ class MembershipService:
         try:
             async with self._session_factory() as session, session.begin():
                 user = await self._get_user(session, telegram_id, lock=True)
-                await self._require_member(session, user.id, club_id)
+                await self._require_active_member(session, user.id, club_id)
                 if await self._bound_player(session, user.id, club_id):
                     raise MembershipError(MembershipErrorCode.ALREADY_LINKED)
                 if await self._pending_for_user(session, user.id, club_id):
@@ -274,7 +287,7 @@ class MembershipService:
         try:
             async with self._session_factory() as session, session.begin():
                 user = await self._get_user(session, telegram_id)
-                await self._require_member(session, user.id, club_id)
+                await self._require_active_member(session, user.id, club_id)
                 player = await session.scalar(
                     select(Player)
                     .where(
@@ -302,7 +315,7 @@ class MembershipService:
     ) -> tuple[PlayerChoice, ...]:
         async with self._session_factory() as session:
             user = await self._get_user(session, telegram_id)
-            await self._require_member(session, user.id, club_id)
+            await self._require_active_member(session, user.id, club_id)
             if await self._bound_player(session, user.id, club_id):
                 raise MembershipError(MembershipErrorCode.ALREADY_LINKED)
             if await self._pending_for_user(session, user.id, club_id):
@@ -324,7 +337,7 @@ class MembershipService:
             player = await session.scalar(select(Player).where(Player.id == player_id).with_for_update())
             if player is None or player.telegram_user_id is not None:
                 raise MembershipError(MembershipErrorCode.PLAYER_NOT_AVAILABLE)
-            await self._require_member(session, user.id, player.club_id)
+            await self._require_active_member(session, user.id, player.club_id)
             if await self._bound_player(session, user.id, player.club_id):
                 raise MembershipError(MembershipErrorCode.ALREADY_LINKED)
             existing = await self._pending_for_user(session, user.id, player.club_id)
@@ -459,7 +472,7 @@ class MembershipService:
                     .where(TelegramUser.id == request.telegram_user_id)
                     .with_for_update()
                 )
-                await self._require_member(session, target_user.id, request.club_id)
+                await self._require_active_member(session, target_user.id, request.club_id)
                 player = await session.scalar(
                     select(Player).where(Player.id == request.player_id).with_for_update()
                 )
@@ -487,6 +500,54 @@ class MembershipService:
             await session.flush()
             return request.status
 
+    async def change_member_status(
+        self, actor_telegram_id: int, club_id: uuid.UUID,
+        target_player_id: uuid.UUID, status: MembershipStatus,
+    ) -> MemberStatusChange:
+        """Change a registered member's canonical status and legacy projection."""
+        if not isinstance(status, MembershipStatus):
+            raise MembershipError(MembershipErrorCode.INVALID_STATUS)
+        async with self._session_factory() as session, session.begin():
+            actor_user = await self._get_user(session, actor_telegram_id)
+            actor_membership = await self._require_active_member(
+                session, actor_user.id, club_id, lock=True
+            )
+            actor_player = await self._bound_player(session, actor_user.id, club_id)
+            actor = ActorContext(
+                club_id=club_id, membership_role=actor_membership.role,
+                membership_status=actor_membership.status,
+                player_id=actor_player.id if actor_player else None,
+                player_is_active=actor_player is not None, telegram_id=actor_telegram_id,
+                telegram_user_id=actor_user.id, membership_id=actor_membership.id,
+            )
+            if not can_manage_club(actor, club_id):
+                raise MembershipError(MembershipErrorCode.NOT_ADMIN)
+            target = await session.scalar(select(Player).where(
+                Player.id == target_player_id, Player.club_id == club_id).with_for_update())
+            if target is None or target.telegram_user_id is None:
+                raise MembershipError(MembershipErrorCode.TARGET_NOT_FOUND)
+            target_membership = await session.scalar(select(ClubMembership).where(
+                ClubMembership.club_id == club_id,
+                ClubMembership.telegram_user_id == target.telegram_user_id,
+            ).with_for_update())
+            if target_membership is None:
+                raise MembershipError(MembershipErrorCode.TARGET_NOT_FOUND)
+            if not can_change_member_status(actor, club_id, target_membership.role):
+                raise MembershipError(MembershipErrorCode.TARGET_ROLE_FORBIDDEN)
+            if target_membership.status is status:
+                return MemberStatusChange(target_membership.id, target.id, status, False)
+            before = {"status": target_membership.status.value}
+            target_membership.status = status
+            target.is_active = status is MembershipStatus.ACTIVE
+            session.add(AuditLog(
+                club_id=club_id, actor_player_id=actor.player_id,
+                entity_type="ClubMembership", entity_id=target_membership.id,
+                action="MEMBER_STATUS_CHANGE", before_data=before,
+                after_data={"status": status.value, "actor_telegram_id": actor_telegram_id},
+            ))
+            await session.flush()
+            return MemberStatusChange(target_membership.id, target.id, status, True)
+
     @staticmethod
     async def _get_user(
         session: AsyncSession, telegram_id: int, *, lock: bool = False
@@ -501,31 +562,43 @@ class MembershipService:
 
     @staticmethod
     async def _require_member(
-        session: AsyncSession, user_id: uuid.UUID, club_id: uuid.UUID
+        session: AsyncSession, user_id: uuid.UUID, club_id: uuid.UUID,
+        *, lock: bool = False,
     ) -> ClubMembership:
-        membership = await session.scalar(
-            select(ClubMembership).where(
-                ClubMembership.club_id == club_id,
-                ClubMembership.telegram_user_id == user_id,
-            )
+        statement = select(ClubMembership).where(
+            ClubMembership.club_id == club_id,
+            ClubMembership.telegram_user_id == user_id,
         )
+        if lock:
+            statement = statement.with_for_update()
+        membership = await session.scalar(statement)
         if membership is None:
             raise MembershipError(MembershipErrorCode.NOT_MEMBER)
-        if membership.status is not MembershipStatus.ACTIVE:
+        if membership.status is MembershipStatus.BLOCKED:
             raise MembershipError(MembershipErrorCode.BLOCKED)
+        return membership
+
+    @classmethod
+    async def _require_active_member(
+        cls, session: AsyncSession, user_id: uuid.UUID, club_id: uuid.UUID,
+        *, lock: bool = False,
+    ) -> ClubMembership:
+        membership = await cls._require_member(session, user_id, club_id, lock=lock)
+        if membership.status is MembershipStatus.INACTIVE:
+            raise MembershipError(MembershipErrorCode.INACTIVE)
         return membership
 
     async def _require_admin(
         self, session: AsyncSession, user_id: uuid.UUID, club_id: uuid.UUID
     ) -> Player | None:
-        membership = await self._require_member(session, user_id, club_id)
+        membership = await self._require_active_member(session, user_id, club_id)
         player = await self._bound_player(session, user_id, club_id)
         actor = ActorContext(
             club_id=club_id,
             membership_role=membership.role,
             membership_status=membership.status,
             player_id=player.id if player else None,
-            player_is_active=player.is_active if player else False,
+            player_is_active=player is not None,
         )
         if not can_manage_club(actor, club_id):
             raise MembershipError(MembershipErrorCode.NOT_ADMIN)
@@ -557,7 +630,9 @@ class MembershipService:
         club = await session.get(Club, membership.club_id)
         player = await self._bound_player(session, user.id, membership.club_id)
         pending = await self._pending_for_user(session, user.id, membership.club_id)
-        return ClubView(club.id, club.name, membership.role, player.display_name if player else None, pending is not None)
+        return ClubView(club.id, club.name, membership.role,
+                        player.display_name if player else None, pending is not None,
+                        membership.status)
 
     @staticmethod
     def _profile_values(

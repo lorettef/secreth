@@ -6,6 +6,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Club, ClubMembership, Player, TelegramUser
+from app.domain.enums import MembershipStatus
 from app.domain.permissions import ActorContext
 
 __all__ = ["ActorContext", "resolve_actor", "resolve_actor_with_club"]
@@ -36,7 +37,6 @@ async def resolve_actor_with_club(
                 ClubMembership.role.label("membership_role"),
                 ClubMembership.status.label("membership_status"),
                 Player.id.label("player_id"),
-                Player.is_active.label("player_is_active"),
             )
             .select_from(TelegramUser)
             .outerjoin(Club, Club.id == club_id)
@@ -76,7 +76,13 @@ async def resolve_actor_with_club(
             membership_role=row.membership_role,
             membership_status=row.membership_status,
             player_id=row.player_id,
-            player_is_active=bool(row.player_is_active),
+            # Membership status is the source of truth for registered members.
+            # Player.is_active remains a synchronized legacy projection used by
+            # historical-player queries in the existing bot.
+            player_is_active=(
+                row.player_id is not None
+                and row.membership_status is MembershipStatus.ACTIVE
+            ),
             telegram_id=telegram_id,
             telegram_user_id=row.telegram_user_id,
             membership_id=row.membership_id,

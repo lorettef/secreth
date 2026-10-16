@@ -8,9 +8,12 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import AuditLog, Club, Game, GameEvent, GamePlayer, GameSession, Player
+from app.db.models import AuditLog, Club, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player
 from app.domain.enums import GameRole, GameStatus, MembershipStatus, SessionStatus, Team, VictoryType
-from app.domain.permissions import ActorContext, SessionContext, can_edit_game, can_manage_club
+from app.domain.permissions import (
+    ActorContext, SessionContext, can_change_member_status, can_edit_game,
+    can_manage_club, can_view_club,
+)
 from app.domain.revisions import revision
 from app.services.access import resolve_actor
 from app.services.events import EventView
@@ -191,7 +194,7 @@ class HistoryService:
             return Page(tuple(self._player(p) for p, in rows), current, total)
 
     async def player(self, telegram_id: int, player_id: UUID) -> tuple[UUID, HistoryPlayer]:
-        club_id = await self.object_club(telegram_id, "player", player_id, admin=True)
+        club_id = await self.object_club(telegram_id, "player", player_id)
         async with self._session_factory() as db:
             return club_id, self._player(await db.get(Player, player_id))
 
@@ -215,6 +218,17 @@ class HistoryService:
             if is_active is not None:
                 if type(is_active) is not bool:
                     raise GameError(GameErrorCode.INVALID_NAME)
+                membership = None
+                if p.telegram_user_id is not None:
+                    membership = await db.scalar(select(ClubMembership).where(
+                        ClubMembership.club_id == p.club_id,
+                        ClubMembership.telegram_user_id == p.telegram_user_id,
+                    ).with_for_update())
+                if membership is not None:
+                    if not can_change_member_status(actor, p.club_id, membership.role):
+                        raise GameError(GameErrorCode.NO_ACCESS)
+                    membership.status = (MembershipStatus.ACTIVE if is_active
+                                         else MembershipStatus.INACTIVE)
                 p.is_active = is_active
             p.updated_at = datetime.now(timezone.utc)
             await db.flush()
@@ -248,7 +262,7 @@ class HistoryService:
         db: AsyncSession, telegram_id: int, club_id: UUID
     ) -> ActorContext:
         actor = await resolve_actor(db, telegram_id, club_id)
-        if actor.membership_status is not MembershipStatus.ACTIVE:
+        if not can_view_club(actor, club_id):
             raise GameError(GameErrorCode.NO_ACCESS)
         return actor
 
