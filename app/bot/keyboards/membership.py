@@ -59,7 +59,7 @@ def club_menu(club: ClubView, session_state: SessionMenuState | None = None) -> 
                 [InlineKeyboardButton(text=ru.EXISTING_PLAYER_BUTTON, callback_data=PlayerPage(club_id=club.id, page=0).pack())],
             ]
         )
-    if club.role is MembershipRole.ADMIN:
+    if club.role in (MembershipRole.ADMIN, MembershipRole.OWNER):
         rows.append(
             [InlineKeyboardButton(text=ru.ADMIN_BUTTON, callback_data=ClubAction(club_id=club.id, action="admin").pack())]
         )

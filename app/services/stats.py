@@ -9,9 +9,11 @@ from uuid import UUID
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Club, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player, TelegramUser
-from app.domain.enums import EventType, GameRole, GameStatus, MembershipRole, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
+from app.db.models import Club, Game, GameEvent, GamePlayer, GameSession, Player, TelegramUser
+from app.domain.enums import EventType, GameRole, GameStatus, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
+from app.domain.permissions import ActorContext, can_manage_players
 from app.domain.stats import LeaderboardKind, percentage
+from app.services.access import resolve_actor_with_club
 
 PAGE_SIZE = 10
 T = TypeVar("T")
@@ -163,12 +165,12 @@ class StatsService:
 
     async def get_player_stats(self, telegram_id: int, club_id: UUID, player_id: UUID) -> PlayerStats:
         async with self._session_factory() as db:
-            club, role = await self._access(db, telegram_id, club_id)
+            club, actor = await self._access(db, telegram_id, club_id)
             query, _, _ = self._players_query(club_id)
             row = (await db.execute(query.where(Player.id == player_id))).mappings().first()
             if row is None:
                 raise StatsError(StatsErrorCode.NOT_FOUND)
-            if not row["is_active"] and role is not MembershipRole.ADMIN:
+            if not row["is_active"] and not can_manage_players(actor, club_id):
                 raise StatsError(StatsErrorCode.NO_ACCESS)
             return self._player(row, club)
 
@@ -186,9 +188,9 @@ class StatsService:
     async def list_player_stats(self, telegram_id: int, club_id: UUID, *, page: int = 0) -> Page[PlayerStats]:
         self._check_page(page)
         async with self._session_factory() as db:
-            club, role = await self._access(db, telegram_id, club_id)
+            club, actor = await self._access(db, telegram_id, club_id)
             query, _, _ = self._players_query(club_id)
-            if role is not MembershipRole.ADMIN:
+            if not can_manage_players(actor, club_id):
                 query = query.where(Player.is_active)
             return await self._player_page(db, query.order_by(Player.display_name, Player.id), club, page)
 
@@ -279,15 +281,14 @@ class StatsService:
         kind = LeaderboardKind.RUIN if event_type is EventType.RUIN else LeaderboardKind.IQ_200
         return await self.get_leaderboard(telegram_id, club_id, kind, page=page)
 
-    async def _access(self, db: AsyncSession, telegram_id: int, club_id: UUID) -> tuple[Club, MembershipRole]:
-        row = (await db.execute(select(Club, ClubMembership.role)
-            .join(ClubMembership, ClubMembership.club_id == Club.id)
-            .join(TelegramUser, TelegramUser.id == ClubMembership.telegram_user_id)
-            .where(Club.id == club_id, TelegramUser.telegram_user_id == telegram_id,
-                   ClubMembership.status == MembershipStatus.ACTIVE))).first()
-        if row is None:
+    async def _access(self, db: AsyncSession, telegram_id: int, club_id: UUID) -> tuple[Club, ActorContext]:
+        actor, club = await resolve_actor_with_club(db, telegram_id, club_id)
+        if (actor.membership_status is not MembershipStatus.ACTIVE
+                or actor.membership_role is None):
             raise StatsError(StatsErrorCode.NO_ACCESS)
-        return row.Club, row.role
+        if club is None:
+            raise StatsError(StatsErrorCode.NO_ACCESS)
+        return club, actor
 
     @staticmethod
     def _games(club_id: UUID, session_id: UUID | None = None):

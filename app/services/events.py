@@ -10,11 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import AuditLog, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player, TelegramUser
-from app.domain.enums import EventType, GameStatus, MembershipRole, MembershipStatus, RuinReason, SessionStatus
+from app.db.models import AuditLog, Game, GameEvent, GamePlayer, GameSession, Player
+from app.domain.enums import EventType, GameStatus, MembershipStatus, RuinReason, SessionStatus
 from app.domain.revisions import revision
 from app.domain.events import EventFields, EventValidationError, validate_event
 from app.domain.permissions import ActorContext, SessionContext, can_edit_game, can_manage_club
+from app.services.access import resolve_actor
 from app.services.games import GamePerson
 
 logger = logging.getLogger(__name__)
@@ -158,18 +159,10 @@ class EventService:
         if lock:
             game = await db.scalar(select(Game).where(Game.id == game_id).with_for_update()
                                    .execution_options(populate_existing=True))
-        row = (await db.execute(select(ClubMembership, Player)
-            .join(TelegramUser, TelegramUser.id == ClubMembership.telegram_user_id)
-            .outerjoin(Player, (Player.club_id == evening.club_id) &
-                       (Player.telegram_user_id == TelegramUser.id))
-            .where(TelegramUser.telegram_user_id == telegram_id,
-                   ClubMembership.club_id == evening.club_id))).first()
-        if row is None or row.ClubMembership.status is not MembershipStatus.ACTIVE:
+        actor = await resolve_actor(db, telegram_id, evening.club_id)
+        if actor.membership_status is not MembershipStatus.ACTIVE:
             raise EventError(EventErrorCode.NO_ACCESS)
-        membership, player = row
-        actor = ActorContext(evening.club_id, membership.role, membership.status,
-                             player.id if player else None, bool(player and player.is_active))
-        if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and actor.membership_role is not MembershipRole.ADMIN:
+        if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and not can_manage_club(actor, evening.club_id):
             raise EventError(EventErrorCode.NO_ACCESS)
         return game, evening, actor
 

@@ -9,12 +9,13 @@ from enum import StrEnum
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import AuditLog, ClubMembership, Game, GameEvent, GamePlayer, GameSession, Player, SessionParticipant, TelegramUser
-from app.domain.enums import GameRole, GameStatus, MembershipRole, MembershipStatus, SessionStatus, Team, VictoryType
+from app.db.models import AuditLog, Game, GameEvent, GamePlayer, GameSession, Player, SessionParticipant
+from app.domain.enums import GameRole, GameStatus, MembershipStatus, SessionStatus, Team, VictoryType
 from app.domain.permissions import ActorContext, SessionContext, can_create_game, can_edit_game, can_manage_club
 from app.domain.revisions import revision
 from app.domain.roles import RoleValidationError, assign_liberals, validate_game_roles
 from app.domain.victories import VictoryValidationError, validate_victory
+from app.services.access import resolve_actor
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ class GameService:
                 raise GameError(GameErrorCode.NOT_FOUND)
             evening = await db.get(GameSession, game.session_id)
             actor = await self._actor(db, telegram_id, evening.club_id)
-            if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and actor.membership_role is not MembershipRole.ADMIN:
+            if (game.status is GameStatus.VOID or evening.status is SessionStatus.VOID) and not can_manage_club(actor, evening.club_id):
                 raise GameError(GameErrorCode.NO_ACCESS)
             return await self._result(db, game)
 
@@ -189,17 +190,10 @@ class GameService:
 
     async def _actor(self, db: AsyncSession, telegram_id: int,
                      club_id: uuid.UUID) -> ActorContext:
-        row = (await db.execute(select(ClubMembership, Player)
-            .join(TelegramUser, TelegramUser.id == ClubMembership.telegram_user_id)
-            .outerjoin(Player, (Player.club_id == club_id) &
-                       (Player.telegram_user_id == TelegramUser.id))
-            .where(TelegramUser.telegram_user_id == telegram_id,
-                   ClubMembership.club_id == club_id))).first()
-        if row is None or row.ClubMembership.status is not MembershipStatus.ACTIVE:
+        actor = await resolve_actor(db, telegram_id, club_id)
+        if actor.membership_status is not MembershipStatus.ACTIVE:
             raise GameError(GameErrorCode.NO_ACCESS)
-        membership, player = row
-        return ActorContext(club_id, membership.role, membership.status,
-                            player.id if player else None, bool(player and player.is_active))
+        return actor
 
     async def _roster(self, db: AsyncSession, session_id: uuid.UUID) -> tuple[GamePerson, ...]:
         rows = await db.execute(select(Player.id, Player.display_name)

@@ -160,9 +160,7 @@ async def test_schema_ready_and_outdated(exchange):
     finally:
         async with engine.begin() as db:
             await db.execute(
-                text(
-                    "UPDATE alembic_version SET version_num='0004_statistician_recovery'"
-                )
+                text("UPDATE alembic_version SET version_num='0005_owner_role'")
             )
 
 
@@ -382,6 +380,108 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             await check_database(engine)
         with patch.dict(os.environ, {"DATABASE_URL": fresh_url}):
             config = Config("alembic.ini")
+            await asyncio.to_thread(
+                command.upgrade, config, "0004_statistician_recovery"
+            )
+            legacy_club_id = uuid4()
+            legacy_player_id = uuid4()
+            legacy_admin_id = uuid4()
+            async with engine.begin() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO clubs (id, name, timezone) "
+                        "VALUES (:id, 'Legacy club', 'UTC')"
+                    ),
+                    {"id": legacy_club_id},
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO telegram_users (id, telegram_user_id) "
+                        "VALUES (:player_id, 10101), (:admin_id, 10102)"
+                    ),
+                    {"player_id": legacy_player_id, "admin_id": legacy_admin_id},
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO club_memberships "
+                        "(id, club_id, telegram_user_id, role, status) VALUES "
+                        "(:player_membership_id, :club_id, :player_id, 'PLAYER', 'ACTIVE'), "
+                        "(:admin_membership_id, :club_id, :admin_id, 'ADMIN', 'ACTIVE')"
+                    ),
+                    {
+                        "player_membership_id": uuid4(),
+                        "admin_membership_id": uuid4(),
+                        "club_id": legacy_club_id,
+                        "player_id": legacy_player_id,
+                        "admin_id": legacy_admin_id,
+                    },
+                )
+            await asyncio.to_thread(command.upgrade, config, "head")
+            async with engine.connect() as db:
+                result = await db.execute(
+                    text(
+                        "SELECT role::text FROM club_memberships "
+                        "WHERE club_id = :club_id ORDER BY role::text"
+                    ),
+                    {"club_id": legacy_club_id},
+                )
+                roles = result.scalars().all()
+            assert roles == ["ADMIN", "PLAYER"]
+
+            owner_user_id = uuid4()
+            async with engine.begin() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO telegram_users (id, telegram_user_id) "
+                        "VALUES (:id, 10103)"
+                    ),
+                    {"id": owner_user_id},
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO club_memberships "
+                        "(id, club_id, telegram_user_id, role, status) "
+                        "VALUES (:id, :club_id, :user_id, 'OWNER', 'ACTIVE')"
+                    ),
+                    {
+                        "id": uuid4(),
+                        "club_id": legacy_club_id,
+                        "user_id": owner_user_id,
+                    },
+                )
+            with pytest.raises(RuntimeError, match="OWNER memberships exist"):
+                await asyncio.to_thread(
+                    command.downgrade, config, "0004_statistician_recovery"
+                )
+            async with engine.begin() as db:
+                await db.execute(
+                    text(
+                        "DELETE FROM club_memberships WHERE telegram_user_id = :user_id"
+                    ),
+                    {"user_id": owner_user_id},
+                )
+
+            await asyncio.to_thread(
+                command.downgrade, config, "0004_statistician_recovery"
+            )
+            async with engine.connect() as db:
+                owner_enum_value = await db.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_enum e "
+                        "JOIN pg_type t ON t.oid = e.enumtypid "
+                        "WHERE t.typname = 'membership_role' "
+                        "AND e.enumlabel = 'OWNER'"
+                    )
+                )
+                owner_index = await db.scalar(
+                    text(
+                        "SELECT to_regclass("
+                        "'public.uq_club_memberships_one_owner_per_club')"
+                    )
+                )
+            assert owner_enum_value == 1
+            assert owner_index is None
+
             await asyncio.to_thread(command.upgrade, config, "head")
             await asyncio.to_thread(command.downgrade, config, "base")
             await asyncio.to_thread(command.upgrade, config, "head")
@@ -407,6 +507,14 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                     )
                 )
                 == 1
+            )
+            assert (
+                await db.scalar(
+                    select(func.count(ClubMembership.id)).where(
+                        ClubMembership.role == MembershipRole.OWNER
+                    )
+                )
+                == 0
             )
             players = [first]
             for i in range(4):

@@ -41,7 +41,8 @@ from app.domain.events import validate_event
 from app.domain.permissions import can_manage_club
 from app.domain.roles import validate_game_roles
 from app.domain.victories import validate_victory
-from app.services.games import GameError, GameErrorCode, GameService
+from app.services.access import resolve_actor
+from app.services.games import GameError, GameErrorCode
 
 logger = logging.getLogger(__name__)
 COLUMNS = {
@@ -177,9 +178,7 @@ class ExportService:
             async with connection.begin():
                 await connection.execute(text("SET TRANSACTION READ ONLY"))
                 async with AsyncSession(bind=connection, expire_on_commit=False) as db:
-                    actor = await GameService(async_sessionmaker(self.engine))._actor(
-                        db, telegram_id, club_id
-                    )
+                    actor = await resolve_actor(db, telegram_id, club_id)
                     if not can_manage_club(actor, club_id):
                         raise GameError(GameErrorCode.NO_ACCESS)
                     club = await db.get(Club, club_id)

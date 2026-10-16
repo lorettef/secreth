@@ -106,6 +106,12 @@ class ClubMembership(Base):
     __tablename__ = "club_memberships"
     __table_args__ = (
         UniqueConstraint("club_id", "telegram_user_id", name="uq_memberships_club_telegram_user"),
+        Index(
+            "uq_club_memberships_one_owner_per_club",
+            "club_id",
+            unique=True,
+            postgresql_where=text("role = 'OWNER'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

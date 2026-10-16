@@ -13,12 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.db.models import (
     Club,
+    ClubMembership,
     EventType,
     Game,
     GameEvent,
     GamePlayer,
     GameRole,
     GameSession,
+    MembershipRole,
+    MembershipStatus,
     Player,
     SessionStatus,
     Team,
@@ -120,6 +123,63 @@ async def test_telegram_link_is_unique_within_club(session: AsyncSession) -> Non
         async with session.begin_nested():
             session.add(TelegramUser(telegram_user_id=123456))
             await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_club_cannot_have_two_owner_memberships(session: AsyncSession) -> None:
+    club = Club(name="Owner club", timezone="UTC")
+    first_user = TelegramUser(telegram_user_id=123457)
+    second_user = TelegramUser(telegram_user_id=123458)
+    session.add_all((club, first_user, second_user))
+    await session.flush()
+    session.add(
+        ClubMembership(
+            club_id=club.id,
+            telegram_user_id=first_user.id,
+            role=MembershipRole.OWNER,
+            status=MembershipStatus.ACTIVE,
+        )
+    )
+    await session.flush()
+
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            session.add(
+                ClubMembership(
+                    club_id=club.id,
+                    telegram_user_id=second_user.id,
+                    role=MembershipRole.OWNER,
+                    status=MembershipStatus.ACTIVE,
+                )
+            )
+            await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_different_clubs_can_each_have_an_owner(session: AsyncSession) -> None:
+    first_club = Club(name="First owner club", timezone="UTC")
+    second_club = Club(name="Second owner club", timezone="UTC")
+    first_user = TelegramUser(telegram_user_id=123459)
+    second_user = TelegramUser(telegram_user_id=123460)
+    session.add_all((first_club, second_club, first_user, second_user))
+    await session.flush()
+    session.add_all(
+        (
+            ClubMembership(
+                club_id=first_club.id,
+                telegram_user_id=first_user.id,
+                role=MembershipRole.OWNER,
+                status=MembershipStatus.ACTIVE,
+            ),
+            ClubMembership(
+                club_id=second_club.id,
+                telegram_user_id=second_user.id,
+                role=MembershipRole.OWNER,
+                status=MembershipStatus.ACTIVE,
+            ),
+        )
+    )
+    await session.flush()
 
 
 @pytest.mark.asyncio

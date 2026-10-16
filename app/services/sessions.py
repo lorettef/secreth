@@ -11,13 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
     AuditLog, Club, ClubMembership, Game, GameSession, Player, SessionParticipant,
-    StatisticianConfirmation, StatisticianRecovery, TelegramUser,
+    StatisticianConfirmation, StatisticianRecovery,
 )
 from app.domain.enums import GameStatus, MembershipStatus, RecoveryStatus, SessionStatus, Team
 from app.domain.permissions import (
     ActorContext, SessionContext, can_confirm_recovery, can_manage_club,
     can_manage_current_session, can_request_recovery, can_start_session,
 )
+from app.services.access import resolve_actor
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +259,9 @@ class SessionService:
             raise SessionError(SessionErrorCode.STALE)
         async with self._session_factory() as db, db.begin():
             evening, actor = await self._recovery_actor(db, telegram_id, session_id, lock=True)
-            user_id = await db.scalar(select(TelegramUser.id).where(TelegramUser.telegram_user_id == telegram_id))
+            user_id = actor.telegram_user_id
+            if user_id is None:
+                raise SessionError(SessionErrorCode.NO_ACCESS)
             existing = await db.get(StatisticianRecovery, request_id)
             if existing is not None:
                 if (existing.session_id != session_id or existing.initiator_telegram_user_id != user_id
@@ -306,7 +309,9 @@ class SessionService:
                 raise SessionError(SessionErrorCode.CONFIRMATION_NOT_ALLOWED)
             if request.status is RecoveryStatus.APPLIED:
                 return await self._recovery_view(db, evening, request, actor)
-            user_id = await db.scalar(select(TelegramUser.id).where(TelegramUser.telegram_user_id == telegram_id))
+            user_id = actor.telegram_user_id
+            if user_id is None:
+                raise SessionError(SessionErrorCode.NO_ACCESS)
             already = await db.scalar(select(StatisticianConfirmation.id).where(
                 StatisticianConfirmation.recovery_id == request.id,
                 (StatisticianConfirmation.telegram_user_id == user_id) |
@@ -446,17 +451,10 @@ class SessionService:
             raise SessionError(SessionErrorCode.STALE)
 
     async def _actor(self, db: AsyncSession, telegram_id: int, club_id: uuid.UUID) -> ActorContext:
-        row = (await db.execute(
-            select(ClubMembership, Player)
-            .join(TelegramUser, TelegramUser.id == ClubMembership.telegram_user_id)
-            .outerjoin(Player, (Player.club_id == ClubMembership.club_id) & (Player.telegram_user_id == TelegramUser.id))
-            .where(TelegramUser.telegram_user_id == telegram_id, ClubMembership.club_id == club_id)
-        )).first()
-        if row is None or row.ClubMembership.status is not MembershipStatus.ACTIVE:
+        actor = await resolve_actor(db, telegram_id, club_id)
+        if actor.membership_status is not MembershipStatus.ACTIVE:
             raise SessionError(SessionErrorCode.NO_ACCESS)
-        membership, player = row
-        return ActorContext(club_id, membership.role, membership.status,
-                            player.id if player else None, bool(player and player.is_active))
+        return actor
 
     async def _active(self, db: AsyncSession, club_id: uuid.UUID) -> GameSession | None:
         return await db.scalar(select(GameSession).where(GameSession.club_id == club_id,

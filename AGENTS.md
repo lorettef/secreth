@@ -10,9 +10,18 @@ The product goal is **fast, reliable post-game entry with minimal friction**. Th
 
 ## 1. Source of truth
 
-The primary product specification is:
+For Ministry of Culture v1.1 work, the target product specification is:
 
-`docs/SPEC.md`
+- `docs/Ministry_TZ_Functional_1.1.md`
+- `docs/Ministry_TZ_UI_UX_1.1.md`
+- `docs/Ministry_Decisions_1.1.md`
+- `docs/Codex_Handoff_1.1.md`
+
+`docs/SPEC.md` documents the previous Telegram bot version and does not override
+v1.1 requirements. Decisions recorded in `docs/Ministry_Decisions_1.1.md` take
+priority where they resolve conflicts in the functional or UI/UX documents.
+Existing behavior remains governed by its current implementation and regression
+tests until the corresponding v1.1 stage explicitly changes it.
 
 Before making any non-trivial change, read the relevant sections of `docs/SPEC.md` and inspect the current implementation and tests.
 
@@ -20,9 +29,9 @@ Before making any non-trivial change, read the relevant sections of `docs/SPEC.m
 
 **Do not modify `docs/SPEC.md` on your own.**
 
-If implementation and specification disagree:
+If implementation and the applicable target specification disagree:
 
-1. treat `docs/SPEC.md` as the intended behavior;
+1. treat the v1.1 documents above as the intended behavior for v1.1 work;
 2. report the conflict;
 3. change the code to match the spec unless the user explicitly asks to change the product behavior;
 4. only modify `docs/SPEC.md` when explicitly instructed.
@@ -867,7 +876,32 @@ Do not claim production readiness solely because code compiles.
 
 ---
 
-## 33. Final guiding rule
+## 33. Stage checkpoints and Git delivery
+
+Every successfully completed development stage must be delivered as one focused
+Git commit followed by an ordinary push to the current branch on `origin`.
+
+Before committing a stage:
+
+1. run the full pytest suite against the dedicated PostgreSQL test database;
+2. run `ruff check`, `ruff format --check`, and `git diff --check`;
+3. when the stage contains migrations, verify them on an isolated PostgreSQL
+   test database;
+4. inspect `git status`, the working-tree diff, and the exact staged diff;
+5. stage only files that belong to the current stage, using explicit paths;
+6. keep secrets, `.env`, temporary files, generated reports, and unrelated user
+   changes out of the commit.
+
+Do not commit or push when a required check fails. Do not use force push. If a
+push is rejected because of conflicts, authentication, or remote changes, stop
+and report the reason without resetting or discarding local work.
+
+After a successful push, report the commit, verification results, push result,
+and remaining uncommitted files, then wait for the next task.
+
+---
+
+## 34. Final guiding rule
 
 This project should remain a **small, dependable Telegram bot for a real group of friends**.
 

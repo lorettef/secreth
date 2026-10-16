@@ -81,7 +81,14 @@ async def test_start_invite_shows_club_and_join_button(message: tuple[Message, A
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role,has_admin_button", [(MembershipRole.PLAYER, False), (MembershipRole.ADMIN, True)])
+@pytest.mark.parametrize(
+    "role,has_admin_button",
+    [
+        (MembershipRole.PLAYER, False),
+        (MembershipRole.ADMIN, True),
+        (MembershipRole.OWNER, True),
+    ],
+)
 async def test_start_existing_member_shows_role_menu(
     message: tuple[Message, AsyncMock], role: MembershipRole, has_admin_button: bool,
     session_service: AsyncMock,

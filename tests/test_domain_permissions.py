@@ -11,6 +11,7 @@ from app.domain.permissions import (
     SessionContext,
     can_create_game,
     can_edit_game,
+    can_manage_admins,
     can_manage_club,
     can_manage_current_session,
     can_manage_players,
@@ -59,6 +60,7 @@ def test_player_cannot_manage_or_edit(player: ActorContext, active_session: Sess
     assert not can_edit_game(player, active_session)
     assert not can_manage_players(player, CLUB_ID)
     assert not can_manage_club(player, CLUB_ID)
+    assert not can_manage_admins(player, CLUB_ID)
 
 
 def test_statistician_can_manage_only_active_current_session(
@@ -93,12 +95,28 @@ def test_admin_can_manage_club_and_historical_games(
     assert can_edit_game(admin, replace(active_session, status=SessionStatus.VOID))
     assert can_manage_players(admin, CLUB_ID)
     assert can_manage_club(admin, CLUB_ID)
+    assert not can_manage_admins(admin, CLUB_ID)
     assert not can_manage_players(admin, OTHER_CLUB_ID)
     assert not can_manage_club(admin, OTHER_CLUB_ID)
     assert not can_manage_current_session(
         admin, replace(active_session, status=SessionStatus.FINISHED)
     )
     assert not can_edit_game(admin, replace(active_session, club_id=OTHER_CLUB_ID))
+
+
+def test_owner_has_admin_access_and_exclusive_admin_management(
+    player: ActorContext, active_session: SessionContext
+) -> None:
+    owner = replace(player, membership_role=MembershipRole.OWNER)
+    assert can_start_session(owner, CLUB_ID, has_active_session=False)
+    assert can_manage_current_session(owner, active_session)
+    assert can_create_game(owner, active_session)
+    assert can_edit_game(owner, replace(active_session, status=SessionStatus.FINISHED))
+    assert can_edit_game(owner, replace(active_session, status=SessionStatus.VOID))
+    assert can_manage_players(owner, CLUB_ID)
+    assert can_manage_club(owner, CLUB_ID)
+    assert can_manage_admins(owner, CLUB_ID)
+    assert not can_manage_admins(owner, OTHER_CLUB_ID)
 
 
 def test_admin_without_player_can_manage_club_but_not_start_session(
@@ -126,6 +144,7 @@ def test_blocked_or_missing_membership_denies_access(
     assert not can_edit_game(actor, active_session)
     assert not can_manage_players(actor, CLUB_ID)
     assert not can_manage_club(actor, CLUB_ID)
+    assert not can_manage_admins(actor, CLUB_ID)
 
 
 def test_missing_membership_role_denies_access(player: ActorContext) -> None:

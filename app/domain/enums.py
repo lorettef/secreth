@@ -6,6 +6,7 @@ import enum
 class MembershipRole(str, enum.Enum):
     PLAYER = "PLAYER"
     ADMIN = "ADMIN"
+    OWNER = "OWNER"
 
 
 class MembershipStatus(str, enum.Enum):
