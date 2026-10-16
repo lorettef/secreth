@@ -81,7 +81,10 @@ docker compose logs -f app
 - 0001_initial_models — основная schema/constraints.
 - 0002_player_link_requests — ADMIN approval linking.
 - 0003_game_draft_id — duplicate Save protection.
-- 0004_statistician_recovery — persistent emergency requests/confirmations; текущая единственная head.
+- 0004_statistician_recovery — persistent emergency requests/confirmations.
+- 0005_owner_role — единственная роль OWNER внутри клуба.
+- 0006_bootstrap_invites — одно системное bootstrap-приглашение на клуб.
+- 0007_player_profiles — nullable профиль участника и уникальный без учёта регистра ник внутри клуба; текущая единственная head.
 
 ```bash
 docker compose run --rm app alembic current

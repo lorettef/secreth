@@ -8,6 +8,7 @@ from enum import StrEnum
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     AuditLog,
@@ -20,6 +21,7 @@ from app.db.models import (
 )
 from app.domain.enums import MembershipRole, MembershipStatus, PlayerLinkStatus
 from app.domain.permissions import ActorContext, can_manage_club
+from app.domain.profiles import MAX_PROFILE_FIELD_LENGTH, normalize_profile_text
 from app.services.invites import generate_invite_token
 
 
@@ -35,6 +37,12 @@ class MembershipErrorCode(StrEnum):
     INVALID_INVITE_OPTIONS = "INVALID_INVITE_OPTIONS"
     ALREADY_LINKED = "ALREADY_LINKED"
     NAME_REQUIRED = "NAME_REQUIRED"
+    FIRST_NAME_REQUIRED = "FIRST_NAME_REQUIRED"
+    LAST_NAME_REQUIRED = "LAST_NAME_REQUIRED"
+    SCHOOL_NICKNAME_REQUIRED = "SCHOOL_NICKNAME_REQUIRED"
+    PROFILE_FIELD_TOO_LONG = "PROFILE_FIELD_TOO_LONG"
+    SCHOOL_NICKNAME_CONFLICT = "SCHOOL_NICKNAME_CONFLICT"
+    PROFILE_NOT_FOUND = "PROFILE_NOT_FOUND"
     PENDING_EXISTS = "PENDING_EXISTS"
     PLAYER_NOT_AVAILABLE = "PLAYER_NOT_AVAILABLE"
     REQUEST_NOT_FOUND = "REQUEST_NOT_FOUND"
@@ -83,6 +91,24 @@ class PendingLinkView:
     requester_name: str
     requester_username: str | None
     requester_telegram_id: int
+
+
+@dataclass(frozen=True)
+class PlayerProfileView:
+    id: uuid.UUID
+    club_id: uuid.UUID
+    first_name: str
+    last_name: str
+    school_nickname: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class _ProfileValues:
+    first_name: str
+    last_name: str
+    school_nickname: str
+    display_name: str
 
 
 class MembershipService:
@@ -197,6 +223,79 @@ class MembershipService:
             )
             await session.flush()
             return await self._club_view(session, user, membership)
+
+    async def create_member_profile(
+        self,
+        telegram_id: int,
+        club_id: uuid.UUID,
+        *,
+        first_name: str,
+        last_name: str,
+        school_nickname: str,
+    ) -> PlayerProfileView:
+        """Create a new profile for an active member without historical matching."""
+
+        try:
+            async with self._session_factory() as session, session.begin():
+                user = await self._get_user(session, telegram_id, lock=True)
+                await self._require_member(session, user.id, club_id)
+                if await self._bound_player(session, user.id, club_id):
+                    raise MembershipError(MembershipErrorCode.ALREADY_LINKED)
+                if await self._pending_for_user(session, user.id, club_id):
+                    raise MembershipError(MembershipErrorCode.PENDING_EXISTS)
+                values = self._profile_values(
+                    first_name, last_name, school_nickname
+                )
+                player = Player(
+                    club_id=club_id,
+                    telegram_user_id=user.id,
+                    display_name=values.display_name,
+                    first_name=values.first_name,
+                    last_name=values.last_name,
+                    school_nickname=values.school_nickname,
+                )
+                session.add(player)
+                await session.flush()
+                return self._profile(player)
+        except IntegrityError as error:
+            self._raise_profile_integrity_error(error)
+
+    async def update_member_profile(
+        self,
+        telegram_id: int,
+        club_id: uuid.UUID,
+        *,
+        first_name: str,
+        last_name: str,
+        school_nickname: str,
+    ) -> PlayerProfileView:
+        """Replace the caller's club-scoped profile fields atomically."""
+
+        try:
+            async with self._session_factory() as session, session.begin():
+                user = await self._get_user(session, telegram_id)
+                await self._require_member(session, user.id, club_id)
+                player = await session.scalar(
+                    select(Player)
+                    .where(
+                        Player.club_id == club_id,
+                        Player.telegram_user_id == user.id,
+                    )
+                    .with_for_update()
+                )
+                if player is None:
+                    raise MembershipError(MembershipErrorCode.PROFILE_NOT_FOUND)
+                values = self._profile_values(
+                    first_name, last_name, school_nickname
+                )
+                player.first_name = values.first_name
+                player.last_name = values.last_name
+                player.school_nickname = values.school_nickname
+                player.display_name = values.display_name
+                await session.flush()
+                return self._profile(player)
+        except IntegrityError as error:
+            self._raise_profile_integrity_error(error)
 
     async def list_unlinked_players(
         self, telegram_id: int, club_id: uuid.UUID, *, page: int = 0, page_size: int = 10
@@ -459,6 +558,61 @@ class MembershipService:
         player = await self._bound_player(session, user.id, membership.club_id)
         pending = await self._pending_for_user(session, user.id, membership.club_id)
         return ClubView(club.id, club.name, membership.role, player.display_name if player else None, pending is not None)
+
+    @staticmethod
+    def _profile_values(
+        first_name: str, last_name: str, school_nickname: str
+    ) -> _ProfileValues:
+        normalized_first_name = normalize_profile_text(first_name)
+        normalized_last_name = normalize_profile_text(last_name)
+        normalized_nickname = normalize_profile_text(school_nickname)
+        if not normalized_first_name:
+            raise MembershipError(MembershipErrorCode.FIRST_NAME_REQUIRED)
+        if not normalized_last_name:
+            raise MembershipError(MembershipErrorCode.LAST_NAME_REQUIRED)
+        if not normalized_nickname:
+            raise MembershipError(MembershipErrorCode.SCHOOL_NICKNAME_REQUIRED)
+        display_name = f"{normalized_first_name} {normalized_last_name}"
+        if any(
+            len(value) > MAX_PROFILE_FIELD_LENGTH
+            for value in (
+                normalized_first_name,
+                normalized_last_name,
+                normalized_nickname,
+                display_name,
+            )
+        ):
+            raise MembershipError(MembershipErrorCode.PROFILE_FIELD_TOO_LONG)
+        return _ProfileValues(
+            first_name=normalized_first_name,
+            last_name=normalized_last_name,
+            school_nickname=normalized_nickname,
+            display_name=display_name,
+        )
+
+    @staticmethod
+    def _profile(player: Player) -> PlayerProfileView:
+        return PlayerProfileView(
+            id=player.id,
+            club_id=player.club_id,
+            first_name=player.first_name or "",
+            last_name=player.last_name or "",
+            school_nickname=player.school_nickname or "",
+            display_name=player.display_name,
+        )
+
+    @staticmethod
+    def _raise_profile_integrity_error(error: IntegrityError) -> None:
+        original = error.orig
+        cause = getattr(original, "__cause__", None)
+        constraint_name = getattr(original, "constraint_name", None) or getattr(
+            cause, "constraint_name", None
+        )
+        if constraint_name == "uq_players_club_school_nickname_ci":
+            raise MembershipError(
+                MembershipErrorCode.SCHOOL_NICKNAME_CONFLICT
+            ) from error
+        raise error
 
     @staticmethod
     def _validate_invite(invitation: InviteToken | None) -> None:

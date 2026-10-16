@@ -160,7 +160,7 @@ async def test_schema_ready_and_outdated(exchange):
     finally:
         async with engine.begin() as db:
             await db.execute(
-                text("UPDATE alembic_version SET version_num='0006_bootstrap_invites'")
+                text("UPDATE alembic_version SET version_num='0007_player_profiles'")
             )
 
 
@@ -388,6 +388,9 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             legacy_admin_id = uuid4()
             legacy_profile_id = uuid4()
             legacy_invite_id = uuid4()
+            legacy_session_id = uuid4()
+            legacy_game_id = uuid4()
+            legacy_game_player_id = uuid4()
             async with engine.begin() as db:
                 await db.execute(
                     text(
@@ -442,6 +445,44 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
                         "player_id": legacy_profile_id,
                     },
                 )
+                await db.execute(
+                    text(
+                        "INSERT INTO game_sessions "
+                        "(id, club_id, status, created_by_player_id, "
+                        "statistician_player_id) VALUES "
+                        "(:id, :club_id, 'FINISHED', :player_id, :player_id)"
+                    ),
+                    {
+                        "id": legacy_session_id,
+                        "club_id": legacy_club_id,
+                        "player_id": legacy_profile_id,
+                    },
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO games "
+                        "(id, session_id, sequence_number, winner_team, "
+                        "victory_type, created_by_player_id) VALUES "
+                        "(:id, :session_id, 1, 'LIBERAL', "
+                        "'LIBERAL_POLICIES', :player_id)"
+                    ),
+                    {
+                        "id": legacy_game_id,
+                        "session_id": legacy_session_id,
+                        "player_id": legacy_profile_id,
+                    },
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO game_players (id, game_id, player_id, role) "
+                        "VALUES (:id, :game_id, :player_id, 'LIBERAL')"
+                    ),
+                    {
+                        "id": legacy_game_player_id,
+                        "game_id": legacy_game_id,
+                        "player_id": legacy_profile_id,
+                    },
+                )
             await asyncio.to_thread(command.upgrade, config, "head")
             async with engine.connect() as db:
                 result = await db.execute(
@@ -465,6 +506,37 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             assert legacy_invite.created_by == legacy_profile_id
             assert legacy_invite.is_bootstrap is False
             assert legacy_invite.max_uses == 3
+            async with engine.connect() as db:
+                legacy_profile = (
+                    await db.execute(
+                        text(
+                            "SELECT id, club_id, telegram_user_id, first_name, "
+                            "last_name, school_nickname FROM players WHERE id = :id"
+                        ),
+                        {"id": legacy_profile_id},
+                    )
+                ).one()
+            assert legacy_profile.id == legacy_profile_id
+            assert legacy_profile.club_id == legacy_club_id
+            assert legacy_profile.telegram_user_id == legacy_player_id
+            assert legacy_profile.first_name is None
+            assert legacy_profile.last_name is None
+            assert legacy_profile.school_nickname is None
+            async with engine.connect() as db:
+                legacy_game = (
+                    await db.execute(
+                        text(
+                            "SELECT g.id, g.session_id, gp.player_id, gp.role::text "
+                            "AS role FROM games g JOIN game_players gp "
+                            "ON gp.game_id = g.id WHERE g.id = :id"
+                        ),
+                        {"id": legacy_game_id},
+                    )
+                ).one()
+            assert legacy_game.id == legacy_game_id
+            assert legacy_game.session_id == legacy_session_id
+            assert legacy_game.player_id == legacy_profile_id
+            assert legacy_game.role == "LIBERAL"
 
             bootstrap_invite_id = uuid4()
             async with engine.begin() as db:
@@ -542,6 +614,22 @@ async def test_fresh_install_full_migration_cycle_bootstrap_and_minimal_workflow
             assert downgraded_invite_creator == legacy_profile_id
             assert owner_enum_value == 1
             assert owner_index is None
+            async with engine.connect() as db:
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT count(*) FROM game_players "
+                            "WHERE id = :id AND game_id = :game_id "
+                            "AND player_id = :player_id"
+                        ),
+                        {
+                            "id": legacy_game_player_id,
+                            "game_id": legacy_game_id,
+                            "player_id": legacy_profile_id,
+                        },
+                    )
+                    == 1
+                )
 
             await asyncio.to_thread(command.upgrade, config, "head")
             await asyncio.to_thread(command.downgrade, config, "base")

@@ -89,12 +89,22 @@ class Player(TimestampMixin, Base):
     __tablename__ = "players"
     __table_args__ = (
         UniqueConstraint("club_id", "telegram_user_id", name="uq_players_club_telegram_user"),
+        Index(
+            "uq_players_club_school_nickname_ci",
+            "club_id",
+            func.lower(text("school_nickname")),
+            unique=True,
+            postgresql_where=text("school_nickname IS NOT NULL"),
+        ),
         Index("ix_players_club_active", "club_id", "is_active"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id"), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    first_name: Mapped[str | None] = mapped_column(String(255))
+    last_name: Mapped[str | None] = mapped_column(String(255))
+    school_nickname: Mapped[str | None] = mapped_column(String(255))
     telegram_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("telegram_users.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
 

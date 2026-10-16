@@ -96,6 +96,41 @@ async def test_create_club_and_historical_player(session: AsyncSession) -> None:
     assert club.created_at.tzinfo is not None
     assert player.club_id == club.id
     assert player.telegram_user_id is None
+    assert player.first_name is None
+    assert player.last_name is None
+    assert player.school_nickname is None
+
+
+@pytest.mark.asyncio
+async def test_school_nickname_unique_index_is_case_insensitive_per_club(
+    session: AsyncSession,
+) -> None:
+    club, player = await seed_club_and_player(session)
+    player.school_nickname = "SchoolNick"
+    await session.flush()
+
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            session.add(
+                Player(
+                    club_id=club.id,
+                    display_name="Duplicate nickname",
+                    school_nickname="schoolnick",
+                )
+            )
+            await session.flush()
+
+    another_club = Club(name="Nickname in another club", timezone="UTC")
+    session.add(another_club)
+    await session.flush()
+    session.add(
+        Player(
+            club_id=another_club.id,
+            display_name="Allowed nickname",
+            school_nickname="SCHOOLNICK",
+        )
+    )
+    await session.flush()
 
 
 @pytest.mark.asyncio

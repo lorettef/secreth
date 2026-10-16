@@ -13,6 +13,8 @@ from app.db.models import AuditLog, Club, ClubMembership, Game, GameEvent, GameP
 from app.domain.enums import EventType, GameRole, GameStatus, MembershipRole, MembershipStatus, RuinReason, SessionStatus, Team, VictoryType
 from app.domain.roles import get_role_distribution
 from app.domain.stats import LeaderboardKind, percentage
+from app.services.history import HistoryService
+from app.services.membership import MembershipService
 from app.services.stats import StatsError, StatsService
 from test_games_integration import seed, test_database_url  # noqa: F401
 
@@ -128,6 +130,47 @@ async def test_manual_player_sanity_and_independent_aggregates(stats_data):
     print(f"StatsService: {p.total_games} games, {p.total_wins} wins, {p.overall_winrate}%; "
           + "; ".join(f"{role.value}: {score.games} games/{score.wins} wins={score.winrate}%" for role, score in p.roles.items())
           + f"; RUIN: {p.ruin_events} events/{p.games_with_ruin} games={p.ruin_rate}%")
+
+
+@pytest.mark.asyncio
+async def test_profile_update_does_not_change_history_roles_or_statistics(
+    stats_data,
+) -> None:
+    f = stats_data
+    before = await f.stats.get_my_stats(8801, f.club)
+    history = HistoryService(f.factory)
+    card_before = await history.card(8801, f.games[0])
+
+    await MembershipService(f.factory).update_member_profile(
+        8801,
+        f.club,
+        first_name="New",
+        last_name="Name",
+        school_nickname="newnick",
+    )
+
+    after = await f.stats.get_my_stats(8801, f.club)
+    card_after = await history.card(8801, f.games[0])
+    assert (
+        after.total_games,
+        after.total_wins,
+        after.overall_winrate,
+        after.roles,
+        after.ruin_events,
+        after.games_with_ruin,
+    ) == (
+        before.total_games,
+        before.total_wins,
+        before.overall_winrate,
+        before.roles,
+        before.ruin_events,
+        before.games_with_ruin,
+    )
+    assert card_after.game == card_before.game
+    assert card_after.roles == card_before.roles
+    assert {person.id for person in card_after.participants} == {
+        person.id for person in card_before.participants
+    }
 
 
 @pytest.mark.asyncio
