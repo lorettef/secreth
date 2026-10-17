@@ -196,3 +196,32 @@ async def test_admin_invite_button_returns_deep_link(
     assert (expires_at is not None) is has_expiry
     deep_link.assert_awaited_once_with(bot, "invite_random-token")
     assert "https://t.me/example_bot" in message[1].await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_configured_mini_app_invite_uses_startapp_without_logging_token(
+    callback: CallbackQuery,
+    message: tuple[Message, AsyncMock],
+    session_service: AsyncMock,
+) -> None:
+    service = AsyncMock()
+    service.create_invite.return_value = "one-time_token"
+    bot = Bot(token="123456:example")
+    callback.as_(bot)
+    bot.get_me = AsyncMock(
+        return_value=User(id=1, is_bot=True, first_name="Bot", username="ministry_bot")
+    )
+    try:
+        await club_action(
+            callback,
+            ClubAction(club_id=UUID(int=7), action="invite1"),
+            service,
+            session_service,
+            mini_app_url="https://mini.example.org",
+        )
+    finally:
+        await bot.session.close()
+
+    text = message[1].await_args.args[0]
+    assert "https://t.me/ministry_bot?startapp=one-time_token" in text
+    assert "?start=" not in text

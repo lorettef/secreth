@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     telegram_init_data_max_age_seconds: int = Field(default=3600, ge=1, le=86400)
     telegram_init_data_future_skew_seconds: int = Field(default=30, ge=0, le=300)
     mini_app_allowed_origins: list[str] = Field(default_factory=list)
+    mini_app_url: str | None = None
 
     @field_validator("default_timezone")
     @classmethod
@@ -71,4 +72,20 @@ class Settings(BaseSettings):
             normalized.append(origin)
         if len(set(normalized)) != len(normalized):
             raise ValueError("MINI_APP_ALLOWED_ORIGINS must not contain duplicates")
+        return normalized
+
+    @field_validator("mini_app_url")
+    @classmethod
+    def validate_mini_app_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = value.rstrip("/")
+        parsed = urlsplit(normalized)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("MINI_APP_URL must be an absolute HTTPS URL")
         return normalized

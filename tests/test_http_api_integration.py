@@ -230,3 +230,48 @@ async def test_missing_authentication_is_predictable(api_data) -> None:
     )
     assert response.status_code == 401
     assert response.json() == {"detail": "TELEGRAM_AUTH_REQUIRED"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("telegram_id", "expected_status"),
+    [(95101, "ACTIVE"), (95102, "INACTIVE")],
+)
+async def test_my_clubs_lists_only_accessible_own_memberships(
+    api_data, telegram_id: int, expected_status: str
+) -> None:
+    client, club, _ = api_data
+    response = await client.get(
+        "/api/v1/my-clubs",
+        headers=authorization(telegram_id),
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "blocked": False,
+        "clubs": [
+            {
+                "id": str(club.id),
+                "name": "API club",
+                "membership_role": "PLAYER",
+                "membership_status": expected_status,
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("telegram_id", [95103, 95104, 95999])
+async def test_my_clubs_hides_blocked_and_does_not_create_membership(
+    api_data, telegram_id: int
+) -> None:
+    client, _, _ = api_data
+    response = await client.get(
+        "/api/v1/my-clubs",
+        params={"telegram_id": 95101},
+        headers=authorization(telegram_id),
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "clubs": [],
+        "blocked": telegram_id == 95103,
+    }

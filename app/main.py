@@ -4,7 +4,9 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import SimpleEventIsolation
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 
 from app.bot.handlers.start import router as start_router
 from app.bot.handlers.membership import router as membership_router
@@ -28,6 +30,21 @@ from app.services.stats import StatsService
 from app.services.history import HistoryService
 
 logger = logging.getLogger(__name__)
+
+
+async def configure_mini_app_menu(bot: Bot, mini_app_url: str | None) -> None:
+    """Configure the global WebApp menu only when an HTTPS URL is provided."""
+    if mini_app_url is None:
+        return
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Открыть приложение",
+                web_app=WebAppInfo(url=mini_app_url),
+            )
+        )
+    except TelegramAPIError:
+        logger.warning("Could not configure Telegram Mini App menu button")
 
 
 def create_dispatcher() -> Dispatcher:
@@ -63,6 +80,7 @@ async def main() -> None:
         logger.info("Database connection ready")
 
         async with Bot(token=settings.bot_token) as bot:
+            await configure_mini_app_menu(bot, settings.mini_app_url)
             logger.info("Starting Telegram long polling")
             await create_dispatcher().start_polling(
                 bot, membership_service=membership_service, session_service=session_service,
@@ -71,6 +89,7 @@ async def main() -> None:
                 stats_service=stats_service,
                 history_service=history_service,
                 export_service=ExportService(engine),
+                mini_app_url=settings.mini_app_url,
             )
     except Exception:
         logger.exception("Application startup/polling failed")

@@ -168,6 +168,43 @@ membership, Player, профиль и погашение приглашения 
 Для существующего активного membership в состоянии `PROFILE_REQUIRED` используется
 `POST /api/v1/onboarding/profile` с `club_id` и теми же полями профиля; повторное
 приглашение не требуется и завершённый профиль этим endpoint не редактируется.
+`GET /api/v1/my-clubs` возвращает только собственные доступные ACTIVE/INACTIVE
+memberships проверенного Telegram-пользователя; BLOCKED и чужие клубы не раскрывает.
+
+## Telegram Mini App frontend
+
+Frontend находится в `frontend/` и использует React, TypeScript и Vite. Для
+локальной разработки Vite проксирует `/api` на FastAPI `127.0.0.1:8000`:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+# проверки и production assets
+npm run typecheck
+npm test
+npm run build
+```
+
+Production build создаётся в `frontend/dist/`. На production рекомендуется один
+HTTPS origin: reverse proxy раздаёт frontend и направляет `/api/*` и `/health` в
+FastAPI. Bot token, DATABASE_URL и другие серверные переменные не передаются Vite
+и не должны объявляться как `VITE_*`.
+
+Для Telegram настройте Main Mini App вручную в BotFather и укажите публичный HTTPS
+URL. Ссылки приглашений имеют вид
+`https://t.me/<bot_username>?startapp=<invite_token>`. Затем задайте на сервере:
+
+```dotenv
+MINI_APP_URL=https://mini.example.org
+# Нужен только при раздельных frontend/API origins; wildcard запрещён.
+MINI_APP_ALLOWED_ORIGINS=["https://mini.example.org"]
+```
+
+При `MINI_APP_URL` бот на старте настраивает menu button и создаёт новые invite
+links через `startapp`. Без переменной старые handlers, `/start` и обычные deep
+links продолжают работать как раньше. Настройка Main Mini App, username и preview
+в BotFather остаётся ручной операторской операцией.
 
 Если статист недоступен: текущий вечер → «⚙️ Помощь» → «Проблема со статистом / Сменить статиста». Кандидат — активный зарегистрированный присутствующий Player. Два других текущих участника явно подтверждают; инициатор/кандидат не голосуют, повторный голос не учитывается. ADMIN может сменить сразу. Recovery confirmations живут в PostgreSQL; flow теряет актуальность при finish/смене статиста/уходе кандидата.
 

@@ -35,6 +35,20 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class ClubMembershipResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    name: str
+    membership_role: MembershipRole
+    membership_status: MembershipStatus
+
+
+class MyClubsResponse(BaseModel):
+    clubs: list[ClubMembershipResponse]
+    blocked: bool = False
+
+
 class OnboardingRegisterRequest(BaseModel):
     invite_token: str
     first_name: str

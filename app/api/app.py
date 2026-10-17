@@ -17,6 +17,7 @@ from app.api.dependencies import (
 from app.api.schemas import (
     HealthResponse,
     MeResponse,
+    MyClubsResponse,
     OnboardingCompleteProfileRequest,
     OnboardingRegisterRequest,
     OnboardingResponse,
@@ -91,6 +92,30 @@ def create_app(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="CLUB_ACCESS_DENIED",
             ) from None
+
+    @application.get("/api/v1/my-clubs", response_model=MyClubsResponse)
+    async def my_clubs(
+        identity: Annotated[TelegramIdentity, Depends(authenticated_telegram)],
+        service: Annotated[MembershipService, Depends(membership_service)],
+    ) -> MyClubsResponse:
+        try:
+            clubs = await service.list_clubs(identity.telegram_id)
+        except MembershipError as error:
+            if error.code is MembershipErrorCode.USER_NOT_FOUND:
+                return MyClubsResponse(clubs=[])
+            raise
+        return MyClubsResponse(
+            clubs=[
+                {
+                    "id": club.id,
+                    "name": club.name,
+                    "membership_role": club.role,
+                    "membership_status": club.status,
+                }
+                for club in clubs
+            ],
+            blocked=await service.has_blocked_membership(identity.telegram_id),
+        )
 
     @application.post(
         "/api/v1/onboarding/register",

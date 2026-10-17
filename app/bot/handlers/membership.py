@@ -1,6 +1,7 @@
 """Button flows for joining a club and choosing a player identity."""
 
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from aiogram import Router
 from aiogram.types import CallbackQuery
@@ -37,7 +38,7 @@ async def join_club(
 @router.callback_query(ClubAction.filter())
 async def club_action(
     callback: CallbackQuery, callback_data: ClubAction, membership_service: MembershipService,
-    session_service: SessionService,
+    session_service: SessionService, mini_app_url: str | None = None,
 ) -> None:
     try:
         club_id = callback_data.club_id
@@ -71,7 +72,14 @@ async def club_action(
             token = await membership_service.create_invite(
                 callback.from_user.id, club_id, max_uses=max_uses, expires_at=expires_at
             )
-            link = await create_start_link(callback.bot, f"invite_{token}")
+            if mini_app_url is not None:
+                bot_user = await callback.bot.get_me()
+                link = (
+                    f"https://t.me/{bot_user.username}?startapp="
+                    f"{quote(token, safe='')}"
+                )
+            else:
+                link = await create_start_link(callback.bot, f"invite_{token}")
             await reply(callback, ru.invite_created_message(link), admin_menu(club_id))
         else:
             await reply(callback, ru.INVALID_ACTION)

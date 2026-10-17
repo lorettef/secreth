@@ -32,13 +32,17 @@ def test_http_security_settings_are_bounded() -> None:
         bot_token="123456:example",
         database_url="postgresql+asyncpg://user:password@localhost:5432/stats",
         mini_app_allowed_origins=["https://mini.example.org/"],
+        mini_app_url="https://mini.example.org/app/",
     )
     assert settings.telegram_init_data_max_age_seconds == 3600
     assert settings.mini_app_allowed_origins == ["https://mini.example.org"]
+    assert settings.mini_app_url == "https://mini.example.org/app"
     for values in (
         {"telegram_init_data_max_age_seconds": 86401},
         {"mini_app_allowed_origins": ["*"]},
         {"mini_app_allowed_origins": ["http://mini.example.org"]},
+        {"mini_app_url": "http://mini.example.org"},
+        {"mini_app_url": "https://mini.example.org/?token=secret"},
     ):
         with pytest.raises(ValidationError):
             Settings(

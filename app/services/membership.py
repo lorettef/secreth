@@ -297,6 +297,24 @@ class MembershipService:
                 [await self._club_view(session, user, membership) for membership in memberships]
             )
 
+    async def has_blocked_membership(self, telegram_id: int) -> bool:
+        """Report blocked access without exposing any club-scoped data."""
+        async with self._session_factory() as session:
+            return bool(
+                await session.scalar(
+                    select(ClubMembership.id)
+                    .join(
+                        TelegramUser,
+                        TelegramUser.id == ClubMembership.telegram_user_id,
+                    )
+                    .where(
+                        TelegramUser.telegram_user_id == telegram_id,
+                        ClubMembership.status == MembershipStatus.BLOCKED,
+                    )
+                    .limit(1)
+                )
+            )
+
     async def get_club(self, telegram_id: int, club_id: uuid.UUID) -> ClubView:
         async with self._session_factory() as session:
             user = await self._get_user(session, telegram_id)
