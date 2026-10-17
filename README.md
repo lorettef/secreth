@@ -76,6 +76,14 @@ docker compose logs -f app
 
 Без настоящего token bot не запускает полноценный polling. Fake production режим отсутствует. Schema/config можно проверить через migration/bootstrap команды без обращения к Telegram; настоящий bot smoke выполняется человеком.
 
+Отдельный production stack для «Министерства культуры» находится в
+`compose.ministry.yml`: PostgreSQL 16, один long-polling bot, FastAPI, собранный
+React frontend и Caddy с автоматическим HTTPS. Он использует отдельные volumes и
+не заменяет старый `docker-compose.yml`. Полная пошаговая инструкция для Ubuntu
+24.04, DNS, BotFather, обновления, отката и restore rehearsal находится в
+[docs/MINISTRY_VPS.md](docs/MINISTRY_VPS.md). Пример окружения —
+`.env.ministry.example`.
+
 ## Database migrations
 
 - 0001_initial_models — основная schema/constraints.
@@ -286,7 +294,7 @@ docker compose exec -T db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg
 
 Raw pg_restore не задаёт вопрос: заранее проверьте target. Для interactive safety используйте restore script. Не удаляйте production DB или volume ради восстановления.
 
-## Deployment/update
+## Deployment/update старого bot stack
 
 1. Сделайте и проверьте backup, сохраните off-host copy.
 2. Остановите app: `docker compose stop app`.
@@ -312,7 +320,8 @@ Raw pg_restore не задаёт вопрос: заранее проверьте
 
 - One bot instance only; no horizontal scaling.
 - FSM drafts live in memory; unfinished wizard is lost on restart. Saved Games/Events/recovery confirmations остаются в PostgreSQL, draft не попадает в stats.
-- Long polling; no webhook/HTTP health server/Mini App/website.
+- Bot использует long polling без webhook; production Mini App stack описан
+  отдельно в `compose.ministry.yml` и не развёртывается автоматически.
 - Import только normalized XLSX; неизвестный legacy layout требует отдельного адаптера после получения файла. Нет CSV importer.
 - XLSX не заменяет PostgreSQL dump и не переносит Telegram accounts автоматически.
 - Backup schedule/retention/off-host copy настраивает оператор вне bot process.

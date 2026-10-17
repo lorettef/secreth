@@ -1,0 +1,90 @@
+name: ministry-of-culture
+
+x-application: &application
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - ${MINISTRY_ENV_FILE:-.env}
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  networks:
+    - ministry_internal
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ministry_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ministry_internal
+
+  api:
+    <<: *application
+    command: ["uvicorn", "app.http:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  bot:
+    <<: *application
+    command: ["python", "-m", "app.main"]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.ministry-web
+    environment:
+      MINI_APP_DOMAIN: ${MINI_APP_DOMAIN:?Set MINI_APP_DOMAIN in .env}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ministry_caddy_data:/data
+      - ministry_caddy_config:/config
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - ministry_internal
+
+volumes:
+  ministry_postgres_data:
+    name: ministry_of_culture_postgres_data
+  ministry_caddy_data:
+    name: ministry_of_culture_caddy_data
+  ministry_caddy_config:
+    name: ministry_of_culture_caddy_config
+
+networks:
+  ministry_internal:
+    name: ministry_of_culture_internal
