@@ -7,6 +7,7 @@ from fastapi import Header, HTTPException, Request, status
 from app.auth.telegram import TelegramAuthError, TelegramIdentity, verify_init_data
 from app.config import Settings
 from app.services.http_identity import HttpIdentityService
+from app.services.membership import MembershipService
 
 
 def authenticated_telegram(
@@ -32,6 +33,10 @@ def authenticated_telegram(
 
 def identity_service(request: Request) -> HttpIdentityService:
     return HttpIdentityService(request.app.state.session_factory)
+
+
+def membership_service(request: Request) -> MembershipService:
+    return MembershipService(request.app.state.session_factory)
 
 
 def _unauthorized(code: str) -> HTTPException:

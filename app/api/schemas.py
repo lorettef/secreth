@@ -33,3 +33,28 @@ class MeResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+class OnboardingRegisterRequest(BaseModel):
+    invite_token: str
+    first_name: str
+    last_name: str
+    school_nickname: str
+
+
+class OnboardingCompleteProfileRequest(BaseModel):
+    club_id: UUID
+    first_name: str
+    last_name: str
+    school_nickname: str
+
+
+class OnboardingResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    registration_state: RegistrationState
+    club_id: UUID
+    membership_id: UUID
+    membership_role: MembershipRole
+    membership_status: MembershipStatus
+    profile: ProfileResponse

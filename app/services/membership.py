@@ -51,6 +51,8 @@ class MembershipErrorCode(StrEnum):
     INVALID_STATUS = "INVALID_STATUS"
     TARGET_NOT_FOUND = "TARGET_NOT_FOUND"
     TARGET_ROLE_FORBIDDEN = "TARGET_ROLE_FORBIDDEN"
+    MEMBERSHIP_EXISTS = "MEMBERSHIP_EXISTS"
+    PROFILE_ALREADY_COMPLETE = "PROFILE_ALREADY_COMPLETE"
 
 
 class MembershipError(ValueError):
@@ -109,6 +111,15 @@ class PlayerProfileView:
 
 
 @dataclass(frozen=True)
+class OnboardingRegistration:
+    club_id: uuid.UUID
+    membership_id: uuid.UUID
+    player_id: uuid.UUID
+    role: MembershipRole
+    status: MembershipStatus
+
+
+@dataclass(frozen=True)
 class MemberStatusChange:
     membership_id: uuid.UUID
     player_id: uuid.UUID
@@ -152,6 +163,122 @@ class MembershipService:
                 .returning(TelegramUser.id)
             )
             return (await session.execute(statement)).scalar_one()
+
+    async def register_with_invite(
+        self,
+        telegram_id: int,
+        invite_token: str,
+        *,
+        first_name: str,
+        last_name: str,
+        school_nickname: str,
+    ) -> OnboardingRegistration:
+        """Atomically consume an invitation and create a member profile."""
+
+        values = self._profile_values(first_name, last_name, school_nickname)
+        try:
+            async with self._session_factory() as session, session.begin():
+                invitation = await session.scalar(
+                    select(InviteToken)
+                    .where(InviteToken.token == invite_token)
+                    .with_for_update()
+                )
+                self._validate_invite(invitation)
+
+                await session.execute(
+                    insert(TelegramUser)
+                    .values(id=uuid.uuid4(), telegram_user_id=telegram_id)
+                    .on_conflict_do_nothing(
+                        index_elements=[TelegramUser.telegram_user_id]
+                    )
+                )
+                user = await self._get_user(session, telegram_id, lock=True)
+                membership = await session.scalar(
+                    select(ClubMembership)
+                    .where(
+                        ClubMembership.club_id == invitation.club_id,
+                        ClubMembership.telegram_user_id == user.id,
+                    )
+                    .with_for_update()
+                )
+                if membership is not None:
+                    if membership.status is MembershipStatus.BLOCKED:
+                        raise MembershipError(MembershipErrorCode.BLOCKED)
+                    if membership.status is MembershipStatus.INACTIVE:
+                        raise MembershipError(MembershipErrorCode.INACTIVE)
+                    raise MembershipError(MembershipErrorCode.MEMBERSHIP_EXISTS)
+
+                membership = ClubMembership(
+                    club_id=invitation.club_id,
+                    telegram_user_id=user.id,
+                    role=MembershipRole.PLAYER,
+                    status=MembershipStatus.ACTIVE,
+                )
+                player = Player(
+                    club_id=invitation.club_id,
+                    telegram_user_id=user.id,
+                    display_name=values.display_name,
+                    first_name=values.first_name,
+                    last_name=values.last_name,
+                    school_nickname=values.school_nickname,
+                )
+                session.add_all((membership, player))
+                invitation.uses_count += 1
+                invitation.is_active = False
+                await session.flush()
+                return OnboardingRegistration(
+                    club_id=invitation.club_id,
+                    membership_id=membership.id,
+                    player_id=player.id,
+                    role=membership.role,
+                    status=membership.status,
+                )
+        except IntegrityError as error:
+            self._raise_profile_integrity_error(error)
+
+    async def complete_member_profile(
+        self,
+        telegram_id: int,
+        club_id: uuid.UUID,
+        *,
+        first_name: str,
+        last_name: str,
+        school_nickname: str,
+    ) -> PlayerProfileView:
+        """Complete only the caller's unfinished profile without an invitation."""
+
+        values = self._profile_values(first_name, last_name, school_nickname)
+        try:
+            async with self._session_factory() as session, session.begin():
+                user = await self._get_user(session, telegram_id, lock=True)
+                await self._require_active_member(session, user.id, club_id, lock=True)
+                player = await session.scalar(
+                    select(Player)
+                    .where(
+                        Player.club_id == club_id,
+                        Player.telegram_user_id == user.id,
+                    )
+                    .with_for_update()
+                )
+                if player is not None and all(
+                    (player.first_name, player.last_name, player.school_nickname)
+                ):
+                    raise MembershipError(
+                        MembershipErrorCode.PROFILE_ALREADY_COMPLETE
+                    )
+                if player is None:
+                    if await self._pending_for_user(session, user.id, club_id):
+                        raise MembershipError(MembershipErrorCode.PENDING_EXISTS)
+                    player = Player(club_id=club_id, telegram_user_id=user.id)
+                    session.add(player)
+                player.first_name = values.first_name
+                player.last_name = values.last_name
+                player.school_nickname = values.school_nickname
+                player.display_name = values.display_name
+                await session.flush()
+                return self._profile(player)
+        except IntegrityError as error:
+            self._raise_profile_integrity_error(error)
 
     async def list_clubs(self, telegram_id: int) -> tuple[ClubView, ...]:
         async with self._session_factory() as session:
